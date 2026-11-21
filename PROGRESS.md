@@ -80,7 +80,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Real takeoff times: from the OpenSky Network's track of the flight (`mac-server/opensky.py`), when it tracked the plane from the ground
 - [x] Weather where you are and official airport forecasts (`mac-server/forecast.py`); range of the bar by voice, up to 200 km
 - [ ] Airline schedule times (scheduled departure and arrival): no free source. adsb.lol has none, its flight-history pages refuse programs, and Aivana's web search got live flights wrong. Needs a flight-status API key if Kien wants them
-- [ ] Head-tilt trigger in the headset: not confirmed yet (the two-finger tap was used)
+- [x] Head-tilt trigger: works (Kien, 2026-11-21)
 - [x] Voice chosen by Kien: `af_heart` (US female), which is the default
 - [ ] Done: "what's that plane?" answered in < ~3 s (0.8 s on the Mac with test audio; phone not measured); "show me all the jets above thirty thousand feet" opens the filtered list (works, about 3–6 s through Aivana)
 
@@ -133,6 +133,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · traffic · Empty sky on the phone ("rate limited · 0 cached"): adsb.lol was refusing requests after a night of app restarts, the desktop preview and test requests all from one address, and a freshly started app has nothing cached. The app now falls back to a second open source, adsb.fi, when adsb.lol refuses or fails. Planes were back on the phone after the new build (64 known); whether that answer came from adsb.fi or from adsb.lol relenting was not checked. Head-tilt to talk confirmed working by Kien.
 - 2026-11-21 · phase 6 · X-Plane mode skipped for now at Kien's call. What remains across all phases needs the field, daylight or the headset rather than more code (see the open boxes above).
 - 2026-11-21 · phase 6 · Two stretch goals. **Filters in the sky**: "only show helicopters in the sky" limits the compass bar, the brackets and the radar; "apply that filter to the sky" copies the list's filter; a marker on the HUD shows it is on. **Runway from the wind**: with no pattern traffic to go by, the runway most into the wind at the nearest weather station is used (live: "Runway 10, from the wind, 130 at 4 at Toledo Executive"). Both checked in the desktop preview on live data; 31 app tests and 251 server checks pass.
 - 2026-11-21 · phase 4 · Capture extension confirmed in Kien's Chrome: all five player tabs captured through it, no sharing bars, the same audio levels arriving at the server as with the old way. No call has been transcribed through it yet (nobody was talking, 3 am).

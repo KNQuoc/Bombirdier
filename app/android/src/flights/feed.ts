@@ -6,6 +6,7 @@ import type { Plane } from '@web/planes';
 import type { FeedState, LatLon, PlaneFeed } from '@web/planes';
 import { toRad } from '@web/geo';
 import { bearingDeg, haversineKm } from './geo';
+import { trafficSource } from './adsb';
 import { livePlanes } from './nearby';
 
 /**
@@ -122,10 +123,10 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
     const age = Math.round((Date.now() - fetchedAt) / 1000);
     status =
       problem === 'rate-limited'
-        ? `live · rate limited · ${planes.length} cached (${age} s old)`
+        ? `live · rate limited by both sources · ${planes.length} cached (${age} s old)`
         : problem === 'unreachable'
-          ? `live · adsb.lol unreachable · ${planes.length} cached (${age} s old)`
-          : `live · ${planes.length} planes`;
+          ? `live · no traffic source reachable · ${planes.length} cached (${age} s old)`
+          : `live${trafficSource() === 'adsb.lol' ? '' : ` (${trafficSource()})`} · ${planes.length} planes`;
     status += ` · every ${Math.round(interval / 1000)} s`;
     timer = setTimeout(poll, interval);
   }

@@ -89,7 +89,6 @@ const pointCache = new TTLCache<PointData>(POINT_TTL_MS);
 const routeCache = new TTLCache<Route>(ROUTE_TTL_MS);
 /** The airports behind each known route (only for callsigns whose route was found and plausible). */
 const routeInfoCache = new TTLCache<RouteInfo>(ROUTE_TTL_MS);
-let cooldownUntil = 0;
 /**
  * Most recent successful response per radius: shown instead of an empty sky when upstream fails.
  * Per radius so the 250 nm list never falls back to the small AR query, or the other way round.
@@ -119,6 +118,22 @@ function retryAfterMs(r: Response): number {
   return Number.isFinite(s) ? Math.max(1, Math.min(60, s)) * 1000 : RATE_LIMIT_BACKOFF_MS;
 }
 
+/**
+ * Where live positions are asked for, in order of preference. Both serve the same readsb format
+ * (compared 2026-11-20: positions within about 100 m of each other, callsigns identical).
+ *
+ * adsb.lol comes first; adsb.fi is only asked when adsb.lol has just refused or failed. Without a
+ * second source, a rate limit right after the app starts (nothing cached yet) meant an empty sky
+ * until adsb.lol relented: seen on the phone on 2026-11-21, after a night of restarts.
+ */
+const SOURCES: { name: string; url: (lat: string, lon: string, nm: number) => string; cooldownUntil: number }[] = [
+  { name: 'adsb.lol', url: (lat, lon, nm) => `${ADSB_LOL}/v2/point/${lat}/${lon}/${nm}`, cooldownUntil: 0 },
+  { name: 'adsb.fi', url: (lat, lon, nm) => `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${nm}`, cooldownUntil: 0 },
+];
+/** Which source the latest good answer came from (for the info line). */
+let lastSource = SOURCES[0].name;
+export const trafficSource = () => lastSource;
+
 /** Raw readsb aircraft within radiusNm. Never throws: falls back to cached / last good data. */
 export async function fetchPoint(lat: number, lon: number, radiusNm: number): Promise<PointResult> {
   const nm = Math.max(1, Math.min(MAX_RADIUS_NM, Math.round(radiusNm)));
@@ -128,26 +143,35 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
   const cached = pointCache.get(key);
   if (cached) return { ...cached, problem: null };
   const fallback = pointCache.getStale(key) ?? lastGood.get(nm) ?? { ac: [], fetchedAt: Date.now(), bytes: 0 };
-  if (Date.now() < cooldownUntil) return { ...fallback, problem: 'rate-limited' };
-  try {
-    const r = await request(`${ADSB_LOL}/v2/point/${Number(qlat).toFixed(4)}/${Number(qlon).toFixed(4)}/${nm}`);
-    if (r.status === 429) {
-      const wait = retryAfterMs(r);
-      cooldownUntil = Date.now() + wait;
-      console.warn(`adsb.lol rate limited (429); backing off ${wait / 1000} s`);
-      return { ...fallback, problem: 'rate-limited' };
+  let problem: PointResult['problem'] = 'unreachable';
+  for (const source of SOURCES) {
+    if (Date.now() < source.cooldownUntil) {
+      problem = 'rate-limited';
+      continue;
     }
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const text = await r.text();
-    const body = JSON.parse(text) as { ac?: RawAircraft[] | null };
-    const data: PointData = { ac: body.ac ?? [], fetchedAt: Date.now(), bytes: text.length };
-    pointCache.set(key, data);
-    lastGood.set(nm, data);
-    return { ...data, problem: null };
-  } catch (e) {
-    console.warn('adsb.lol point fetch failed:', e);
-    return { ...fallback, problem: 'unreachable' };
+    try {
+      const r = await request(source.url(Number(qlat).toFixed(4), Number(qlon).toFixed(4), nm));
+      if (r.status === 429) {
+        const wait = retryAfterMs(r);
+        source.cooldownUntil = Date.now() + wait;
+        console.warn(`${source.name} rate limited (429); backing off ${wait / 1000} s`);
+        problem = 'rate-limited';
+        continue;
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const text = await r.text();
+      const body = JSON.parse(text) as { ac?: RawAircraft[] | null };
+      const data: PointData = { ac: body.ac ?? [], fetchedAt: Date.now(), bytes: text.length };
+      pointCache.set(key, data);
+      lastGood.set(nm, data);
+      if (source.name !== lastSource) console.info(`[traffic] positions now from ${source.name}`);
+      lastSource = source.name;
+      return { ...data, problem: null };
+    } catch (e) {
+      console.warn(`${source.name} point fetch failed:`, e);
+    }
   }
+  return { ...fallback, problem };
 }
 
 type Airport = {

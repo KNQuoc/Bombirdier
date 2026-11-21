@@ -69,7 +69,7 @@ export function startWideFeed(opts: {
     // On a failure widePlanes returns the last good wide data (or nothing): keep whichever is newer.
     if (planes.length || !polled) polled = { planes, fetchedAt, at: pos, bytes };
     cache = null;
-    note = problem === 'rate-limited' ? 'rate limited' : problem === 'unreachable' ? 'adsb.lol unreachable' : '';
+    note = problem === 'rate-limited' ? 'rate limited' : problem === 'unreachable' ? 'no traffic source reachable' : '';
     again(problem ? RETRY_MS * 2 : WIDE_POLL_MS);
   }
 
