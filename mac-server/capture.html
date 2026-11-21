@@ -63,9 +63,9 @@
   <h1>Radio capture</h1>
   <p class="soft">Sends the sound of a radio feed playing in another Chrome tab to Bombirdier on this Mac, which writes down each call and shows it on the phone.</p>
   <ol>
-    <li><b>Open the feed's page</b> and press play in its own player. Leave that tab open.</li>
+    <li><b>Open the feed's page</b> and press the green <b>LISTEN</b> next to the feed. Its player opens in a <b>new tab</b> named "Listening to: …" and starts playing. Leave that tab open.</li>
     <li>Come back here and press <b>Capture tab</b> for that feed.</li>
-    <li>In Chrome's window, choose the <b>Chrome Tab</b> that is playing, leave <b>Also share tab audio</b> on, then Share.</li>
+    <li>In Chrome's window, choose the <b>Chrome Tab</b> named "Listening to: …" (the player, not the page with the LISTEN button), leave <b>Also share tab audio</b> on, then Share.</li>
   </ol>
   <label class="option"><input type="checkbox" id="hear"> Keep hearing a feed through the Mac's speakers while it is captured (applies to the next capture you start)</label>
   <p id="problem" hidden></p>
@@ -139,7 +139,7 @@ function buildCard(feed) {
   top.append(el('span', 'name', feed.name), el('span', 'freqs', (feed.freqs || []).join(' · ')), status);
 
   const where = el('div', 'where');
-  if (feed.listenTo) where.append('On its page, play: ', el('b', '', feed.listenTo));
+  if (feed.listenTo) where.append('On its page, press LISTEN next to: ', el('b', '', feed.listenTo), '. Share the player tab that opens.');
 
   const row = el('div', 'row');
   const link = safeLink(feed.page);
@@ -267,7 +267,7 @@ async function start(card) {
     pump(card, capture);
     const quietS = Math.round((Date.now() - capture.quietSince) / 1000);
     if (capture.failing) say(card, 'The server is not taking the audio. Is it still running?', true);
-    else if (quietS >= 20) say(card, `Capturing, but that tab has been silent for ${quietS} s. Is its player playing?`);
+    else if (quietS >= 20) say(card, `Capturing, but that tab has been silent for ${quietS} s. Normal on a quiet frequency; if it never moves, check you shared the "Listening to: …" player tab.`);
     else say(card, 'Capturing. Leave this page and the feed’s tab open.');
   };
   track.addEventListener('ended', () => {

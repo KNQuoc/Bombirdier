@@ -65,8 +65,8 @@ The server can listen to a live ATC feed, cut it into individual calls, transcri
 LiveATC's pages offer an in-browser player and say the streams may not be used in third-party products. So this server never connects to a LiveATC stream and has no stream addresses. You play the feed in LiveATC's own player, in a Chrome tab, and hand that tab's sound to the server:
 
 1. Start the server, then open **<http://localhost:8787/capture>** in Chrome on this Mac.
-2. For a feed, press **Open its page**, and on LiveATC press play on the feed the card names. Leave that tab open.
-3. Back on the capture page press **Capture tab**, pick that Chrome tab in Chrome's window, leave **Also share tab audio** on, and Share. The meter moves when sound is coming through, and calls appear under the feed as they are written down.
+2. For a feed, press **Open its page**, and on LiveATC press the green **LISTEN** next to the feed the card names. The player opens in a new tab named "Listening to: …" and starts playing. Leave that tab open.
+3. Back on the capture page press **Capture tab**, pick the "Listening to: …" tab (the player, not the page with the LISTEN button) in Chrome's window, leave **Also share tab audio** on, and Share. The meter moves when sound is coming through, and calls appear under the feed as they are written down.
 
 Repeat for each feed you want. A captured tab goes quiet on the Mac's speakers unless you tick the box at the top first. Capturing stops when you press Stop, close either tab, or end sharing in Chrome; nothing reconnects by itself.
 
