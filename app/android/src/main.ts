@@ -265,7 +265,7 @@ function identifyLens(s: MediaStream) {
 function startErrorText(err: unknown): string {
   const e = err as Error;
   if (e?.name === 'NotAllowedError') {
-    return 'Camera permission denied. Allow it in Android Settings → Apps → SkyLens → Permissions.';
+    return 'Camera permission denied. Allow it in Android Settings → Apps → Bombirdier → Permissions.';
   }
   return `Could not start: ${e?.message ?? err}`;
 }
@@ -297,7 +297,7 @@ async function start() {
     settingsStatus.textContent = '';
     hudError = locationOk
       ? ''
-      : 'Location permission denied: the app needs GPS to find planes near you. Allow it in Android Settings → Apps → SkyLens → Permissions.';
+      : 'Location permission denied: the app needs GPS to find planes near you. Allow it in Android Settings → Apps → Bombirdier → Permissions.';
     relayout();
     rafId = requestAnimationFrame(frame);
     if (stream) {

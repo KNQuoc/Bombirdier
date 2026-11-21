@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.arplaneidentifier.app',
-  appName: 'SkyLens',
+  appName: 'Bombirdier',
   webDir: 'dist',
   // WebView background before the page paints: the logo's color, so launch goes from the
   // system's icon flash to the app without a black or white flash.

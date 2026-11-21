@@ -4,7 +4,12 @@ This repo is **Bombirdier**, Kien's personal fork of SkyLens. Before working on 
 
 ## Bombirdier
 
-*(Nothing built yet. Add each new module here as it lands.)*
+- **Sky placement (Phase 0).** When `HudState.pitchDeg` and `viewerAltM` are passed, `web/src/hud.ts` draws a corner bracket on each plane at its real spot in the camera view and hangs the focused plane's card under its bracket. Focus is the plane with the smallest true angle from the view center. Without those two fields the HUD is compass-only, as before (the web app passes neither).
+  - Math: `elevationDeg()` (Earth curvature included) and `projectSky()` (pinhole, roll ignored) in `web/src/geo.ts`.
+  - Data: `Plane.altitudeGeomFt` (ADS-B `alt_geom`, WGS84) in both normalizers; `LatLon.altM` from GPS; altitude is extrapolated with vertical rate between polls (`flights/feed.ts`).
+  - Android (`app/android/src/main.ts`): pitch from the orientation sensor; viewer altitude from GPS, else `FALLBACK_GROUND_M` (205) + `EYE_HEIGHT_M` (1.75). Dev mode: ↑ ↓ set pitch.
+- **Name.** The app is called Bombirdier (`capacitor.config.ts`, both `strings.xml` files, page title). `appId` is still `com.arplaneidentifier.app` on purpose: changing it would install a second app and lose compass calibration.
+- **Desktop testing without GPS.** `npm run dev` needs browser geolocation. Where there is none (e.g. an embedded preview), nothing loads past "waiting for GPS".
 
 ---
 

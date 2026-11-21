@@ -6,7 +6,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 | Phase | Status | Tracking issue |
 |---|---|---|
-| 0. Sky-placement patch + rename | ⬜ | [#1](https://github.com/KNQuoc/Bombirdier/issues/1) |
+| 0. Sky-placement patch + rename | 🟡 | [#1](https://github.com/KNQuoc/Bombirdier/issues/1) |
 | 1. Live traffic to 250 nm + list view | ⬜ | [#2](https://github.com/KNQuoc/Bombirdier/issues/2) |
 | 2. Traffic-pattern overlay at 1G0 | ⬜ | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
 | 3. AI voice assistant (Mac server + Aivana) | ⬜ | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
@@ -18,10 +18,11 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 0: sky-placement patch + rename
 
-- [ ] `git apply sky-placement.patch` (Kien has the file)
-- [ ] Checks pass (`app/android`: `npx tsc -p . && npm run check`; `web`: `npx tsc -p .`)
-- [ ] `appName` → **Bombirdier** in `capacitor.config.ts`, `npm run sync` (leave `appId` alone)
-- [ ] APK builds
+- [x] `git apply sky-placement.patch` (applied clean, 8 files)
+- [x] Checks pass (`app/android`: `npx tsc -p . && npm run check`; `web`: `npx tsc -p .`)
+- [x] `appName` → **Bombirdier** in `capacitor.config.ts`, `npm run sync` (leave `appId` alone). Also `strings.xml` (the launcher name comes from there, `cap sync` does not rewrite it), the page title and the permission messages
+- [x] Desktop dev check: bracket lands on a live plane at its elevation, card follows it
+- [ ] APK builds (blocked: this Mac has no Android SDK and only JDK 17; needs Android Studio or SDK + JDK 21)
 - [ ] Outdoors: brackets land on real planes
 
 ## Phase 1: live traffic to 250 nm + list view
@@ -98,4 +99,5 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
-- 2026-11-20 · setup · Repo created from SkyLens (full history kept, `upstream` remote points at jaiden-lee/ar-plane-identifier). Plan and tracker added.
+- 2026-11-20 · phase 0 · Sky-placement patch applied as written; app renamed to Bombirdier; type checks and TS/Python parity pass; verified in desktop dev mode on live traffic near 1G0. APK build and outdoor test still open.
+- 2026-11-20 · setup · Repo created from SkyLens (history squashed to one initial commit; local `upstream` remote points at jaiden-lee/ar-plane-identifier). Plan and tracker added.

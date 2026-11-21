@@ -1,4 +1,4 @@
-# SkyLens (Android app)
+# Bombirdier (Android app, formerly SkyLens)
 
 Standalone APK (Capacitor). The web code is bundled into the app, and only adsb.lol / adsb.im are contacted. No voice, no casting, no demo data: it always shows live planes around the phone's GPS position.
 
@@ -31,7 +31,7 @@ npm run apk          # tsc + vite build -> cap sync -> gradlew assembleDebug
 npm run install-apk  # adb install -r (phone with USB debugging on)
 ```
 
-APK: `native/app/build/outputs/apk/debug/app-debug.apk` (you can also copy it to the phone and sideload it). Debug builds install as **"SkyLens (debug)"** (`com.arplaneidentifier.app.debug`), next to the release build.
+APK: `native/app/build/outputs/apk/debug/app-debug.apk` (you can also copy it to the phone and sideload it). Debug builds install as **"Bombirdier (debug)"** (`com.arplaneidentifier.app.debug`), next to the release build.
 
 ## Release
 
@@ -50,7 +50,7 @@ adb install -r native/app/build/outputs/apk/release/app-release.apk
 
 | Script | What |
 |---|---|
-| `npm run dev` | Desktop browser at http://localhost:5174/?dev=1 (arrow keys turn, Shift = 10°; camera optional). Live mode works through the dev proxy. No native features |
+| `npm run dev` | Desktop browser at http://localhost:5174/?dev=1 (← → turn, ↑ ↓ look up/down, Shift = 10°; camera optional). Live mode works through the dev proxy. No native features |
 | `npm run sync` | Build the web bundle and copy it into `native/` (needed after every web change) |
 | `npm run check` | Compare the in-app flight engine with flight-service's Python on flight-service's frozen snapshot (`flight-service/data`; the app itself has no demo data). Add `-- --live` to also test live adsb.lol data + route lookups. Needs `flight-service/.venv` |
 | `npm run tables` | Regenerate `src/flights/tables.ts` (airlines, type names, ...) after changing them in `flight-service/app/normalize.py` |
