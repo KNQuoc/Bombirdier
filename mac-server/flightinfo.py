@@ -1,9 +1,12 @@
 """Where a flight is on its route, when it should arrive, and what the weather is doing along it.
 
-Everything about times here is an ESTIMATE worked out from the plane's position and speed and the
-two airports of its route. There is no free source of airline schedules or actual departure times:
-adsb.lol has none, its flight-history pages are not open to programs, and a web search through Aivana
-found nothing live (tried 2026-11-21). A flight-status API with a key would be needed for real times.
+Arrival times here are ESTIMATES worked out from the plane's position and speed and the two airports
+of its route, and the answers say so. There is no free source of airline schedules: adsb.lol has
+none, its flight-history pages are not open to programs, and a web search through Aivana got live
+flights wrong (docs/aivana.md). A flight-status API with a key would be needed for scheduled times.
+
+The takeoff is different: opensky.py gets the real time and place a plane left the ground from the
+OpenSky Network's track of the flight, when it has one. Without it the departure is estimated too.
 
 Weather is real: current reports (METARs) from the US government's aviationweather.gov, for the
 origin, the destination and the station nearest the plane.
@@ -270,12 +273,32 @@ def wants(text: str) -> str | None:
     return None
 
 
-def answer(kind: str, plane: dict | None, prog: dict | None, wx: dict) -> str:
-    """The spoken answer to one of the flight questions."""
+SEEN_NOT_SCHEDULED = "That's when receivers first saw it leave, not the airline's gate time."
+
+
+def took_off_when(took: dict) -> str:
+    """"12:41 AM, 1 hour 40 minutes ago" (with "yesterday at" when it left before midnight)."""
+    at = took["at"]
+    yesterday = (at + timedelta(minutes=took["agoMin"])).date() > at.date()
+    return f"{'yesterday at ' if yesterday else ''}{spoken_clock(at)}, {spoken_duration(took['agoMin'])} ago"
+
+
+def answer(kind: str, plane: dict | None, prog: dict | None, wx: dict, took: dict | None = None) -> str:
+    """The spoken answer to one of the flight questions.
+
+    `took` is what OpenSky's track says about the takeoff (opensky.takeoff(), plus `near`: a place
+    name for where it left from when that isn't the route's origin). Without it, times are estimates.
+    """
     if not plane:
         return "I don't see a plane in the middle of your view. Point at one, or open one from the list."
     name = spoken_name(plane)
+    left = took if took and took.get("fromGround") else None
+    near = f" near {left['near']}" if left and left.get("near") else ""
     if not prog:
+        if left and kind == "departed":
+            return f"It took off{near} at {took_off_when(left)}. {SEEN_NOT_SCHEDULED} I have no route for it, so I don't know where it's headed."
+        if left and kind == "route":
+            return f"There's no route on file for {name}, so I don't know where it's going. It took off{near} at {took_off_when(left)}."
         return f"I don't know where {name} is going: there's no route on file for it, so I can't work that out."
     origin, destination = place(prog["origin"]), place(prog["destination"])
     if kind == "route":
@@ -292,6 +315,11 @@ def answer(kind: str, plane: dict | None, prog: dict | None, wx: dict) -> str:
             f"That's my estimate from {miles(prog['remainingNm'])} to {destination} at {round(plane['groundSpeedKt'])} knots, not the airline's time."
         )
     if kind == "departed":
+        if left and left.get("atOrigin"):
+            return f"It took off from {origin} at {took_off_when(left)}. {SEEN_NOT_SCHEDULED}"
+        if left:
+            # The plane left from somewhere the route doesn't mention: believe the plane.
+            return f"It took off{near} at {took_off_when(left)}. The route I have says {origin}, which doesn't match where it left from, so that route may be out of date."
         if prog["sinceDepartureMin"] is None:
             return f"I don't have its departure time from {origin}."
         return f"Roughly {spoken_duration(prog['sinceDepartureMin'])} ago from {origin}, judging by the {miles(prog['flownNm'])} it has covered. I don't have the airline's actual departure time."
@@ -308,10 +336,15 @@ def answer(kind: str, plane: dict | None, prog: dict | None, wx: dict) -> str:
     return ""
 
 
-def context_lines(plane: dict | None, prog: dict | None, wx: dict) -> list[str]:
+def context_lines(plane: dict | None, prog: dict | None, wx: dict, took: dict | None = None) -> list[str]:
     """Flight progress and weather as lines for Aivana's context."""
+    left = took if took and took.get("fromGround") else None
+    actual = []
+    if left:
+        where = f"from {place(prog['origin'])}" if prog and left.get("atOrigin") else f"near {left['near']}" if left.get("near") else "from an unknown place"
+        actual = [f"Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): {where} at {took_off_when(left)}."]
     if not plane or not prog:
-        return []
+        return actual
     origin, destination = prog["origin"], prog["destination"]
     lines = [
         f"Its flight (estimates from position and speed, not airline data): {miles(prog['flownNm'])} flown from {place(origin)} ({origin.get('code')}), "
@@ -320,8 +353,13 @@ def context_lines(plane: dict | None, prog: dict | None, wx: dict) -> list[str]:
     if prog["etaMin"] is not None:
         lines.append(
             f"Estimated arrival in {spoken_duration(prog['etaMin'])}, about {spoken_clock(prog['eta'])} the user's local time. "
-            f"Estimated to have left about {spoken_duration(prog['sinceDepartureMin'])} ago. Scheduled and actual airline times are not available: say these are estimates."
+            + (
+                "Airline schedule times are not available: say the arrival is an estimate."
+                if left
+                else f"Estimated to have left about {spoken_duration(prog['sinceDepartureMin'])} ago. Scheduled and actual airline times are not available: say these are estimates."
+            )
         )
+    lines += actual
     for key, label in (("origin", f"Weather now at {place(origin)}"), ("destination", f"Weather now at {place(destination)}")):
         if wx.get(key):
             lines.append(f"{label}: {describe_metar(wx[key])} (raw: {wx[key].get('rawOb', '')})")

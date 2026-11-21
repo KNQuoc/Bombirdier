@@ -397,5 +397,54 @@ async def _weather_answers():
 
 asyncio.run(_weather_answers())
 
+# --- When a plane really took off (opensky.py), with made-up tracks: no network
+import opensky as O  # noqa: E402
+
+T0 = datetime(2026, 11, 21, 0, 41).timestamp()
+LATER = datetime(2026, 11, 21, 2, 20)
+# [time, lat, lon, altitude in meters, track, on ground]: off the ground at Charlotte, climbing west.
+FROM_CLT = {"callsign": "AAL3035", "startTime": T0, "path": [[T0, 35.22, -80.95, 230, 180, False], [T0 + 600, 35.6, -81.9, 6000, 290, False], [T0 + 3600, 39.0, -84.0, 10600, 300, False]]}
+took = O.takeoff(FROM_CLT, p, LATER)
+check("takeoff: from the ground at the route's origin", (took["fromGround"], took["atOrigin"], round(took["agoMin"]), round(took["awayFromOriginNm"])), (True, True, 99, 0))
+check("takeoff answer", F.answer("departed", AAL, p, {}, took), "It took off from Charlotte at 12:41 AM, 1 hour 40 minutes ago. That's when receivers first saw it leave, not the airline's gate time.")
+check("takeoff: the estimate is still the answer without a track", F.answer("departed", AAL, p, {}, None).startswith("Roughly 1 hour ago from Charlotte"), True)
+
+# First seen already at cruise (it flew into coverage): that is not a takeoff.
+MIDAIR = {"path": [[T0, 44.0, -60.0, 11000, 250, False], [T0 + 3600, 42.0, -75.0, 11000, 250, False]]}
+seen = O.takeoff(MIDAIR, p, LATER)
+check("first seen in the air is not a takeoff", seen["fromGround"], False)
+check("...so the estimate is used", F.answer("departed", AAL, p, {}, seen).startswith("Roughly 1 hour ago from Charlotte"), True)
+
+# A high airport: starts at 1,700 m without the on-ground flag, then climbs: Denver, not mid-air.
+DENVER = {"path": [[T0, 39.85, -104.67, 1700, 80, False], [T0 + 900, 40.2, -103.0, 9000, 80, False]]}
+check("high airport counts when it then climbs", O.takeoff(DENVER, None, LATER)["fromGround"], True)
+check("low and level from the start, never climbing: still a low start", O.takeoff({"path": [[T0, 41.4, -83.6, 500, 90, False], [T0 + 300, 41.4, -83.5, 520, 90, False]]}, None, LATER)["fromGround"], True)
+check("mid-level and level: not a takeoff", O.takeoff({"path": [[T0, 41.4, -83.6, 2000, 90, False], [T0 + 300, 41.4, -83.5, 2050, 90, False]]}, None, LATER)["fromGround"], False)
+check("on-ground flag", O.takeoff({"path": [[T0, 39.85, -104.67, None, 80, True]]}, None, LATER)["fromGround"], True)
+check("no track", O.takeoff(None, p, LATER), None)
+check("empty track", O.takeoff({"path": []}, p, LATER), None)
+
+# Took off somewhere the route doesn't mention: the plane is believed, the route doubted.
+FROM_BOSTON = {"path": [[T0, 42.36, -71.0, -300, 315, False], [T0 + 900, 42.5, -72.5, 8000, 280, False]]}
+wrong = {**O.takeoff(FROM_BOSTON, p, LATER), "near": "Boston"}
+check("takeoff: not at the route's origin", (wrong["fromGround"], wrong["atOrigin"]), (True, False))
+check("takeoff answer: route doubted", F.answer("departed", AAL, p, {}, wrong),
+      "It took off near Boston at 12:41 AM, 1 hour 40 minutes ago. The route I have says Charlotte, which doesn't match where it left from, so that route may be out of date.")
+
+# No route at all (what Aeromexico 004 looked like): where it came from is still worth saying.
+NO_ROUTE = {**AAL, "route": None}
+orphan = {**O.takeoff(FROM_BOSTON, None, LATER), "near": "Boston"}
+check("no route: when did it take off", F.answer("departed", NO_ROUTE, None, {}, orphan),
+      "It took off near Boston at 12:41 AM, 1 hour 40 minutes ago. That's when receivers first saw it leave, not the airline's gate time. I have no route for it, so I don't know where it's headed.")
+check("no route: where is it going", F.answer("route", NO_ROUTE, None, {}, orphan),
+      "There's no route on file for American 3035, so I don't know where it's going. It took off near Boston at 12:41 AM, 1 hour 40 minutes ago.")
+check("no route, no track: as before", F.answer("route", NO_ROUTE, None, {}, None), "I don't know where American 3035 is going: there's no route on file for it, so I can't work that out.")
+late = O.takeoff({"path": [[datetime(2026, 11, 20, 22, 15).timestamp(), 35.22, -80.95, 230, 180, False]]}, p, LATER)
+check("left before midnight", F.took_off_when(late), "yesterday at 10:15 PM, 4 hours 5 minutes ago")
+check("context: actual takeoff, and no guessed departure beside it", [l for l in F.context_lines(AAL, p, {}, took) if "takeoff" in l or "have left" in l],
+      ["Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): from Charlotte at 12:41 AM, 1 hour 40 minutes ago."])
+check("context: no route, still the takeoff", F.context_lines(NO_ROUTE, None, {}, orphan), ["Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): near Boston at 12:41 AM, 1 hour 40 minutes ago."])
+check("ids that aren't real addresses are not asked about", [O._hex({"id": "~2a3b4c"}), O._hex({"id": "A32095"}), O._hex({})], [None, "a32095", None])
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

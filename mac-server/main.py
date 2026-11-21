@@ -29,6 +29,7 @@ import config
 import feeds
 import flightinfo
 import forecast
+import opensky
 import gpu
 import llm
 import radio
@@ -188,6 +189,19 @@ async def _transcribe(req: AskRequest) -> str:
         os.unlink(path)  # recordings are never kept
 
 
+async def _takeoff(plane: dict, prog: dict | None) -> dict | None:
+    """When and where the plane took off, from OpenSky's track of this flight. None if it has none.
+
+    When the takeoff wasn't at the route's origin (or there is no route), the place is named after
+    the nearest weather station, which at a takeoff point is nearly always that airport's own.
+    """
+    took = opensky.takeoff(await opensky.track(plane), prog)
+    if took and took["fromGround"] and not took["atOrigin"]:
+        station = await forecast.nearest("metar", took["lat"], took["lon"])
+        took["near"] = flightinfo.station_name(station) if station and station.get("distanceNm", 99) <= 12 else None
+    return took
+
+
 async def _ask_aivana(question: str, ctx: dict) -> dict:
     now = time.time()
     messages: list[dict] = []
@@ -197,8 +211,8 @@ async def _ask_aivana(question: str, ctx: dict) -> dict:
     # Where the plane being asked about is on its route, and the weather along it.
     plane = flightinfo.subject(ctx)
     prog = flightinfo.progress(plane) if plane else None
-    wx = await flightinfo.weather(plane, prog) if plane else {}
-    flight = "\n".join(flightinfo.context_lines(plane, prog, wx) + await forecast.context_lines(ctx))
+    wx, took = await asyncio.gather(flightinfo.weather(plane, prog), _takeoff(plane, prog)) if plane else ({}, None)
+    flight = "\n".join(flightinfo.context_lines(plane, prog, wx, took) + await forecast.context_lines(ctx))
     messages.append({"role": "user", "content": f"{context_text(ctx)}\n{flight}\n\nThe user said: {question}"})
     result = await llm.complete(messages, system=SYSTEM, schema=REPLY_SCHEMA)
     structured = result.get("structured") or {}
@@ -240,7 +254,10 @@ async def ask(req: AskRequest) -> dict:
         plane = flightinfo.subject(req.context)
         prog = flightinfo.progress(plane) if plane else None
         wx = await flightinfo.weather(plane, prog) if plane and kind.startswith("weather") else {}
-        reply = {"answer": flightinfo.answer(kind, plane, prog, wx), "actions": []}
+        # When it really took off (OpenSky's track): for "when did it take off?", and for a plane
+        # with no route, where at least knowing where it came from is something.
+        took = await _takeoff(plane, prog) if plane and (kind == "departed" or (kind == "route" and not prog)) else None
+        reply = {"answer": flightinfo.answer(kind, plane, prog, wx, took), "actions": []}
     if reply is None:
         llm_started = time.time()
         try:
