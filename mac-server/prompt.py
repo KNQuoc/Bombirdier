@@ -15,7 +15,9 @@ How to answer:
   positions or altitudes that aren't in it. If you don't know, say so briefly.
 - General aviation knowledge is fine for questions the context can't answer (aircraft types, procedures, airlines).
 - Distances in the context are nautical miles; say "miles".
-- "That plane", "it", "this one" mean the plane under "Looking at".
+- "That plane", "it", "this one" mean the plane under "Looking at" (or "Opened from the list" if nothing is being looked at).
+- Arrival and departure times in the context are estimates from the plane's position and speed. Say "about" and
+  never present them as the airline's schedule. Weather lines are real current reports.
 - A helicopter is a helicopter, never a plane. Mention emergency, military or medical status when it's there.
 
 {describe_for_prompt()}
@@ -64,6 +66,8 @@ def context_text(ctx: dict) -> str:
         )
     focus = ctx.get("focus")
     lines.append(f"Looking at: {_plane_line(focus)}" if focus else "Looking at: no plane in the middle of the view.")
+    if ctx.get("opened") and not focus:
+        lines.append(f"Opened from the list (what \"it\" means now): {_plane_line(ctx['opened'])}")
     others = [p for p in ctx.get("inView") or [] if not focus or p.get("id") != focus.get("id")]
     if others:
         lines.append("Also in view: " + "; ".join(_plane_line(p) for p in others[:5]))

@@ -111,7 +111,7 @@ def quick(text: str, context: dict) -> dict | None:
         return _reply("", {"type": "count", "filter": dict(KIND_WORDS[m.group(1)])})
 
     if re.fullmatch(r"(what is|whats|who is|whos|tell me about|identify|what about) (that|this|it)( plane| aircraft| one| helicopter| jet)?|what am i looking at|what plane is (that|this)|what(s| is) (that|this) (plane|aircraft|one)", t):
-        focus = context.get("focus")
+        focus = context.get("focus") or context.get("opened")
         if focus:
             return _reply(describe(focus))
         return _reply("I don't see a plane in the middle of your view. Point at one, or ask me to show the list.")

@@ -33,11 +33,12 @@ import { WOOD_COUNTY } from './airports/1g0';
 import { mslFtToEllipsoidM, runwayEnd } from './airports/airport';
 import { loadAppSettings, saveAppSettings } from './app-settings';
 import type { AppSettings } from './app-settings';
-import { cachedRoute, lookupRoutes } from './flights/adsb';
+import { cachedRoute, cachedRouteInfo, lookupRoutes } from './flights/adsb';
 import { fixedPosition, watchPosition } from './flights/gps';
 import type { GpsWatch } from './flights/gps';
 import { DEFAULT_RADIUS_KM, KM_PER_NM, MAX_AR_RADIUS_KM, WIDE_RADIUS_NM } from './flights/nearby';
 import { drawList, hitList } from './list/draw';
+import { engineKind } from './list/kind';
 import { createList } from './list/list';
 import { createPatternTracker, legCode, legLabel } from './pattern/classify';
 import { createAirportView } from './pattern/overlay';
@@ -280,11 +281,18 @@ function brief(p: Plane) {
     origin: p.origin,
     destination: p.destination,
     kind: p.kind,
+    engine: engineKind(p),
     altitudeFt: p.altitudeFt,
     verticalRateFpm: p.verticalRateFpm,
     groundSpeedKt: p.groundSpeedKt,
     distanceKm: Math.round(p.distanceKm * 10) / 10,
     bearingDeg: Math.round(p.bearingDeg),
+    // Position and route airports: the Mac works out distance flown, distance to go and an arrival
+    // estimate from them, and looks up the weather at each end.
+    lat: Math.round(p.lat * 1e4) / 1e4,
+    lon: Math.round(p.lon * 1e4) / 1e4,
+    trackDeg: p.trackDeg,
+    route: (p.callsign && cachedRouteInfo(p.callsign)) || null,
     onGround: p.onGround,
     emergency: p.emergency,
     military: p.military,
@@ -302,6 +310,8 @@ function voiceContext() {
   const listView = list.view();
   return {
     focus: lastHud.focus ? brief(lastHud.focus) : null,
+    // A plane opened from the list is what "it" means when nothing is in the middle of the view.
+    opened: listView?.opened && !listView.opened.lost ? brief(listView.opened.plane) : null,
     inView: [...lastHud.inView].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 5).map(brief),
     // The home fleet, wherever it is: "are any BGSU planes up?" shouldn't depend on where you're looking.
     bgsu: all.filter((p) => p.tag === 'BGSU').sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 5).map(brief),

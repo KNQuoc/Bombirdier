@@ -64,6 +64,8 @@ Pick a voice in `.env`: `TTS_VOICE=af_heart` (US female, the default), `am_micha
 | "Show me the helicopters / jets / BGSU planes", "any emergencies?" | `rules.py`; the phone counts and words the reply | about 0.3 s, plus 0.2 s for its speech |
 | "Zoom the radar to 100 miles", "we're using runway one zero" | `rules.py` | about 0.4 s |
 | "What's that plane?" | `rules.py`, from the plane's own data | about 0.8 s (a long sentence to voice) |
+| "When does it land?", "how far has it flown?", "when did it take off?", "where is it going?" | `flightinfo.py`, from its position, speed and route | about 0.3 s |
+| "What's the weather at its destination / where it is / where it came from?" | `flightinfo.py`, live weather reports | 0.3–0.8 s |
 | Anything else ("only Southwest above thirty thousand", "how many seats does it have?", "why is it descending?") | Aivana | 3–6 s |
 
 Measured on this Mac with clean test audio (macOS `say`), 2026-11-20: Whisper about 0.3 s, Kokoro 0.1–0.6 s. A real voice through a phone microphone outdoors will transcribe less cleanly.
@@ -79,14 +81,22 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `tts.py` | Kokoro speech (mlx-audio) |
 | `gpu.py` | The single thread all model work runs on |
 | `rules.py` | Instant commands |
+| `flightinfo.py` | Flight progress, arrival estimates and weather for the plane being asked about |
 | `llm.py` | The only file that talks to Aivana. Replace it to use another LLM |
 | `prompt.py` | The assistant's persona and how the phone's context is written out for it |
 | `tools.py` | The actions the assistant can ask the phone to carry out, as a JSON Schema, and their validation |
 | `speech.py` | Wording plane data for speech (distances in nautical miles, said as "miles") |
 | `test_server.py` | `python3 test_server.py`: rules, speech and action checks. No network, no model |
 
+## Flight times are estimates
+
+Arrival time is distance to go ÷ current ground speed, and "left about … ago" is distance flown ÷ a typical average speed. They are usually within a few minutes for a plane in cruise and rougher for one climbing, holding or being vectored. The answers say they are estimates.
+
+Real scheduled and actual times would need a flight-status service with an API key (for example FlightAware AeroAPI or AirLabs). Without one there is no source: adsb.lol carries positions only, its flight-history pages are not open to programs, and asking Aivana to search the web found nothing live. Weather is real: current airport reports from aviationweather.gov.
+
 ## Privacy
 
 - Audio stays on this Mac: it is written to a temporary file for Whisper and deleted straight after. Speech is generated here too.
 - What goes to Aivana: the transcribed question and a few lines about the planes around you, the airport and the list. No audio, no location beyond "at Wood County" and distances.
+- Weather lookups go to aviationweather.gov (a US government service) and carry only airport codes and a box around the plane being asked about, never your position.
 - The Aivana key is read from `.env`, which is gitignored. It is never sent to the phone.

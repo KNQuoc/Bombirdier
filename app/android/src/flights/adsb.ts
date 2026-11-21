@@ -69,11 +69,26 @@ class TTLCache<V> {
 /** [origin, destination] airport codes (IATA preferred); [null, null] = looked up, unknown. */
 export type Route = [string | null, string | null];
 
+/** One end of a route, with enough to work out distances and look up its weather. */
+export type RouteAirport = {
+  /** What the card shows: IATA if there is one, else ICAO. */
+  code: string;
+  /** ICAO code (weather reports are filed under it), if known. */
+  icao: string | null;
+  name: string | null;
+  city: string | null;
+  lat: number;
+  lon: number;
+};
+export type RouteInfo = { origin: RouteAirport; destination: RouteAirport };
+
 /** Aircraft from one successful adsb.lol response, when it was fetched (Date.now() ms), and its size. */
 type PointData = { ac: RawAircraft[]; fetchedAt: number; /** Response body length (JSON characters). */ bytes: number };
 
 const pointCache = new TTLCache<PointData>(POINT_TTL_MS);
 const routeCache = new TTLCache<Route>(ROUTE_TTL_MS);
+/** The airports behind each known route (only for callsigns whose route was found and plausible). */
+const routeInfoCache = new TTLCache<RouteInfo>(ROUTE_TTL_MS);
 let cooldownUntil = 0;
 /**
  * Most recent successful response per radius: shown instead of an empty sky when upstream fails.
@@ -135,7 +150,14 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
   }
 }
 
-type Airport = { lat?: number | null; lon?: number | null; iata?: string | null; icao?: string | null };
+type Airport = {
+  lat?: number | null;
+  lon?: number | null;
+  iata?: string | null;
+  icao?: string | null;
+  name?: string | null;
+  location?: string | null;
+};
 type RouteEntry = { callsign?: string; plausible?: unknown; _airports?: Airport[] | null };
 
 /** How far off a leg a plane can be and still plausibly be flying it (vectors, holds, weather). */
@@ -148,13 +170,34 @@ const ROUTE_SLACK_FRACTION = 0.25;
  * from the plane's position (the files can be stale: a callsign reused for another city pair).
  */
 export function parseRoute(entry: RouteEntry, lat?: number, lon?: number): Route {
-  if (entry.plausible != null && !entry.plausible) return [null, null];
-  const airports = (entry._airports ?? []).filter(
-    (a): a is Airport & { lat: number; lon: number } => a.lat != null && a.lon != null,
-  );
+  const info = parseRouteInfo(entry, lat, lon);
+  return info ? [info.origin.code, info.destination.code] : [null, null];
+}
+
+/** As parseRoute, with the two airports' details. null = no usable route. */
+export function parseRouteInfo(entry: RouteEntry, lat?: number, lon?: number): RouteInfo | null {
+  const found = pickLeg(entry, lat, lon);
+  if (!found) return null;
+  const describe = (a: Airport & { lat: number; lon: number }): RouteAirport => ({
+    code: (a.iata || a.icao)!,
+    icao: a.icao || null,
+    name: a.name || null,
+    city: a.location || null,
+    lat: a.lat,
+    lon: a.lon,
+  });
+  return { origin: describe(found[0]), destination: describe(found[1]) };
+}
+
+type LocatedAirport = Airport & { lat: number; lon: number };
+
+/** The two airports of the leg the plane is on, or null. */
+function pickLeg(entry: RouteEntry, lat?: number, lon?: number): [LocatedAirport, LocatedAirport] | null {
+  if (entry.plausible != null && !entry.plausible) return null;
+  const airports = (entry._airports ?? []).filter((a): a is LocatedAirport => a.lat != null && a.lon != null);
   const codes = airports.map((a) => a.iata || a.icao || null);
-  if (airports.length < 2 || !codes.every(Boolean)) return [null, null];
-  if (lat == null || lon == null) return [codes[0], codes[1]];
+  if (airports.length < 2 || !codes.every(Boolean)) return null;
+  if (lat == null || lon == null) return [airports[0], airports[1]];
   // Detour of flying leg i via the plane's position, and the leg's own length.
   const leg = (i: number) => {
     const [a, b] = [airports[i], airports[i + 1]];
@@ -166,13 +209,15 @@ export function parseRoute(entry: RouteEntry, lat?: number, lon?: number): Route
   for (let i = 1; i < airports.length - 1; i++) if (leg(i).detour < leg(best).detour) best = i;
   if (entry.plausible == null) {
     const { detour, direct } = leg(best);
-    if (detour > ROUTE_SLACK_KM + ROUTE_SLACK_FRACTION * direct) return [null, null];
+    if (detour > ROUTE_SLACK_KM + ROUTE_SLACK_FRACTION * direct) return null;
   }
-  return [codes[best], codes[best + 1]];
+  return [airports[best], airports[best + 1]];
 }
 
 /** Cached route for a callsign, or undefined if it hasn't been looked up (or the entry expired). */
 export const cachedRoute = (callsign: string): Route | undefined => routeCache.get(callsign);
+/** The airports of a callsign's route, if it has a known one. */
+export const cachedRouteInfo = (callsign: string): RouteInfo | undefined => routeInfoCache.get(callsign);
 
 /**
  * Looks up routes for these planes' callsigns that aren't cached yet, and fills the cache. One small
@@ -205,7 +250,9 @@ async function lookupRoute(p: Plane): Promise<void> {
       return;
     }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    routeCache.set(cs, parseRoute((await r.json()) as RouteEntry, p.lat, p.lon));
+    const info = parseRouteInfo((await r.json()) as RouteEntry, p.lat, p.lon);
+    routeCache.set(cs, info ? [info.origin.code, info.destination.code] : [null, null]);
+    if (info) routeInfoCache.set(cs, info);
   } catch (e) {
     console.warn(`route lookup failed for ${cs}:`, e);
     routeCache.set(cs, [null, null], ROUTE_MISS_TTL_MS);

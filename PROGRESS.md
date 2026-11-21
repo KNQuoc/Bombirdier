@@ -54,7 +54,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Card: "Right downwind · RWY 28" (also in a plane opened from the list)
 - [x] Stretch: pattern drawn in the sky as a dashed line
 - [x] Fallback viewer altitude corrected to an ellipsoid height (171 m, was 205 m MSL), so near objects like the pattern sit at the right angle before GPS altitude arrives
-- [ ] Tune the classifier's numbers on live pattern traffic (so far checked only with hand-placed planes; no one was in the pattern at 23:00)
+- [ ] From the first live landing (N442BG, runway 18, 2026-11-21; see `docs/recordings/`): detect the runway in use from traffic (the app had 28 set and labeled everything wrong); stop the 45° entry rule firing during a wide base turn; count the age of each position (`seen_pos`) so a plane lost near the ground isn't moved on and run down to 0 ft
+- [ ] Tune the classifier's numbers on more live pattern traffic (replayed with runway 18, that landing came out downwind → base → final)
 - [ ] Done: BGSU planes in the circuit get the right leg most of the time (needs a flying day at the field)
 
 ## Phase 3: AI voice assistant
@@ -71,7 +72,11 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] USB (`adb reverse`) + Wi-Fi Server URL with cleartext config; Wi-Fi needs a shared token (`BOMBIRDIER_TOKEN`)
 - [x] Server access checks after a security review: Host validation, body size cap, token for non-local requests; server text escaped on the phone
 - [x] Tests: `mac-server/test_server.py` (55 checks); 12 real audio questions transcribed and answered correctly on the Mac (test voices, not a person)
-- [ ] On the phone: head-tilt trigger, microphone recording, speech playback (none of this has run on a device yet)
+- [x] On the phone (Pixel 7, 2026-11-21): recording, the Mac link over USB, actions and speech playback work; Kien's spoken question was transcribed correctly. First attempt failed: the speech-level threshold was tuned on a laptop and the phone's mic read far quieter (fixed: threshold follows the background)
+- [x] Two-finger tap = talk (phone in hand); `run.sh` keeps `adb reverse` alive (Android drops it on every USB reconnect)
+- [x] Flight questions (asked for by Kien after "I don't have the estimated time of arrival"): distance flown and to go, estimated arrival, estimated time since departure, and live weather at the origin, the destination and under the plane (`mac-server/flightinfo.py`). Answered on the Mac in under a second
+- [ ] Real airline times (scheduled / actual departure and arrival): no free source found. adsb.lol has none, its flight-history pages refuse programs, and Aivana's web search found nothing live. Needs a flight-status API key if Kien wants them
+- [ ] Head-tilt trigger in the headset: not confirmed yet (the two-finger tap was used)
 - [x] Voice chosen by Kien: `af_heart` (US female), which is the default
 - [ ] Done: "what's that plane?" answered in < ~3 s (0.8 s on the Mac with test audio; phone not measured); "show me all the jets above thirty thousand feet" opens the filtered list (works, about 3–6 s through Aivana)
 
@@ -112,6 +117,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 3 · Flight progress, arrival estimates and live weather added to the assistant; checked on real flights (JIA5240 CLT–SBN on approach, ASA829 JFK–HNL in cruise).
+- 2026-11-21 · on the phone · First run on Kien's Pixel 7: app, GPS, traffic, USB link to the Mac, voice (after fixing speech detection). Watched a BGSU Seminole (N442BG) fly a left pattern and land on runway 18: the app had runway 28 set and labeled it wrong. Recording in `docs/recordings/`.
 - 2026-11-20 · phase 3 · Voice assistant built: Mac server (Whisper, instant rules, Aivana, Kokoro voice), phone side (head-tilt, recording, actions, playback), access checks. Verified on the Mac with real audio and in desktop dev mode; not yet on a phone.
 - 2026-11-20 · phase 3 prep · Read Aivana's API docs and summarized them in `docs/aivana.md`; added `mac-server/.env.example`.
 - 2026-11-20 · phase 2 · Wood County runways and traffic pattern on the radar and in the sky; pattern-leg classifier with hysteresis; leg on the card and radar; Active runway setting. 20 unit tests pass. Drawing checked with synthetic planes only: no live pattern traffic at night.

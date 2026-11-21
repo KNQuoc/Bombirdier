@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import config
+import flightinfo
 import gpu
 import llm
 import rules
@@ -166,7 +167,12 @@ async def _ask_aivana(question: str, ctx: dict) -> dict:
     for at, q, a in _memory:
         if now - at <= MEMORY_S:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-    messages.append({"role": "user", "content": f"{context_text(ctx)}\n\nThe user said: {question}"})
+    # Where the plane being asked about is on its route, and the weather along it.
+    plane = flightinfo.subject(ctx)
+    prog = flightinfo.progress(plane) if plane else None
+    wx = await flightinfo.weather(plane, prog) if plane else {}
+    flight = "\n".join(flightinfo.context_lines(plane, prog, wx))
+    messages.append({"role": "user", "content": f"{context_text(ctx)}\n{flight}\n\nThe user said: {question}"})
     result = await llm.complete(messages, system=SYSTEM, schema=REPLY_SCHEMA)
     structured = result.get("structured") or {}
     return {"answer": (structured.get("answer") or "").strip(), "actions": validate_actions(structured.get("actions"))}
@@ -187,6 +193,14 @@ async def ask(req: AskRequest) -> dict:
     reply = rules.quick(transcript, req.context)
     source = "rules"
     error = None
+    # Arrival time, distance and weather questions about the plane you're looking at: answered here
+    # from its position, its route and current weather reports. (Weather is a quick lookup, cached.)
+    kind = None if reply else flightinfo.wants(rules.normalize(transcript))
+    if kind:
+        plane = flightinfo.subject(req.context)
+        prog = flightinfo.progress(plane) if plane else None
+        wx = await flightinfo.weather(plane, prog) if plane and kind.startswith("weather") else {}
+        reply = {"answer": flightinfo.answer(kind, plane, prog, wx), "actions": []}
     if reply is None:
         llm_started = time.time()
         try:
