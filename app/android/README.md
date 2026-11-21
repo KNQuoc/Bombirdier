@@ -22,7 +22,18 @@ Standalone APK (Capacitor). The web code is bundled into the app, and only adsb.
 
 ## Build
 
-Needs Node, the Android SDK (`ANDROID_HOME`), and **JDK 21+**. `scripts/gradle.mjs` switches to Android Studio's bundled `jbr` automatically if `JAVA_HOME` points at an older JDK.
+Needs Node, the Android SDK (`ANDROID_HOME`, or `sdk.dir=...` in `native/local.properties`), and **JDK 21+**. `scripts/gradle.mjs` switches to Android Studio's bundled `jbr` or Homebrew's `openjdk@21` automatically if `JAVA_HOME` points at an older JDK.
+
+Without Android Studio (macOS, Homebrew):
+
+```sh
+brew install openjdk@21
+brew install --cask android-commandlinetools
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+sdkmanager --licenses
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > native/local.properties
+```
 
 ```sh
 cd app/android

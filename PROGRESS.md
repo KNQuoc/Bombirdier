@@ -22,7 +22,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Checks pass (`app/android`: `npx tsc -p . && npm run check`; `web`: `npx tsc -p .`)
 - [x] `appName` → **Bombirdier** in `capacitor.config.ts`, `npm run sync` (leave `appId` alone). Also `strings.xml` (the launcher name comes from there, `cap sync` does not rewrite it), the page title and the permission messages
 - [x] Desktop dev check: bracket lands on a live plane at its elevation, card follows it
-- [ ] APK builds (blocked: this Mac has no Android SDK and only JDK 17; needs Android Studio or SDK + JDK 21)
+- [x] APK builds (`npm run apk` → `app-debug.apk`, 4.8 MB, labeled "Bombirdier (debug)")
 - [ ] Outdoors: brackets land on real planes
 
 ## Phase 1: live traffic to 250 nm + list view
@@ -99,5 +99,6 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-20 · phase 0 · Android build set up on the Mac (Homebrew `openjdk@21` + `android-commandlinetools`, SDK platform 36); `gradlew` made executable; debug APK builds. Not yet installed on a phone.
 - 2026-11-20 · phase 0 · Sky-placement patch applied as written; app renamed to Bombirdier; type checks and TS/Python parity pass; verified in desktop dev mode on live traffic near 1G0. APK build and outdoor test still open.
 - 2026-11-20 · setup · Repo created from SkyLens (history squashed to one initial commit; local `upstream` remote points at jaiden-lee/ar-plane-identifier). Plan and tracker added.
