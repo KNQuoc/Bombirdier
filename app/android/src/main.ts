@@ -34,6 +34,7 @@ import { mslFtToEllipsoidM, runwayEnd } from './airports/airport';
 import { AUTO_RUNWAY, loadAppSettings, saveAppSettings } from './app-settings';
 import type { AppSettings } from './app-settings';
 import { cachedRoute, cachedRouteInfo, lookupRoutes } from './flights/adsb';
+import { haversineKm } from './flights/geo';
 import { fixedPosition, watchPosition } from './flights/gps';
 import type { GpsWatch } from './flights/gps';
 import { DEFAULT_RADIUS_KM, KM_PER_NM, MAX_AR_RADIUS_KM, WIDE_RADIUS_NM } from './flights/nearby';
@@ -430,6 +431,20 @@ const radio = createRadio({
   server: macServer,
   planes: () => traffic?.all() ?? [],
   serverUp: () => !!serverHealth,
+  callsignsByFeed: () => {
+    // For each feed, the planes its controller is probably working, nearest to that controller first.
+    // Planes in the very sector the feed carries (the guess names its frequency) come before the rest.
+    const byFeed: Record<string, { name: string; rank: number }[]> = {};
+    for (const p of traffic?.all() ?? []) {
+      const guess = whoControls(p);
+      const f = guess?.facility;
+      const name = p.callsign?.trim() || p.registration;
+      if (!f?.feedId || !name) continue;
+      const km = haversineKm(p.lat, p.lon, f.position.lat, f.position.lon);
+      (byFeed[f.feedId] ??= []).push({ name, rank: km + (guess?.freq ? 0 : 10_000) });
+    }
+    return Object.fromEntries(Object.entries(byFeed).map(([id, list]) => [id, list.sort((a, b) => a.rank - b.rank).slice(0, 25).map((x) => x.name)]));
+  },
 });
 
 /** Listening in (Phase 5): one feed's live audio on the phone and its transcript on the HUD. */
@@ -562,6 +577,14 @@ function frame() {
     radarRangeKm: radarRangeKm ?? field?.patternRadarKm ?? null,
     airport: field ? { ...field.overlay, legCodes } : null,
   };
+  // The compass bar and the sky only carry planes within the AR radius. When that's empty but the
+  // list (and its radar) holds planes farther out, say so: a bare "No planes" next to a radar full
+  // of dots reads as a fault.
+  if (!planes.length && feedState?.status.startsWith('live')) {
+    const fartherOut = traffic?.all().length ?? 0;
+    const within = `No planes within ${Math.round(traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM)} km`;
+    hud.emptyText = fartherOut ? `${within} · ${fartherOut} farther out are in the list ☰` : `${within} · ${feedState.status}`;
+  }
   // Looking straight at the plane you opened: the panel steps aside (it would sit on top of the
   // plane) and the regular card under its bracket takes over until you look away.
   const lookingAtOpened = !!opened && opened.inAr && lastFocusId === opened.plane.id;

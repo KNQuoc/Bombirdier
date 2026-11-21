@@ -46,6 +46,11 @@ export function createRadio(deps: {
   planes: () => Plane[];
   /** Is the Mac server there at all? No point asking otherwise. */
   serverUp: () => boolean;
+  /**
+   * Per feed id, the callsigns that controller is probably working (most likely first). A Center
+   * sector or an approach control 150 km away talks to other planes than the ones nearest you.
+   */
+  callsignsByFeed?: () => Record<string, string[]>;
 }) {
   let running = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -78,7 +83,7 @@ export function createRadio(deps: {
             contextAt = now;
             const around = deps.planes().filter((p) => p.distanceKm <= CONTEXT_WITHIN_KM).sort((a, b) => a.distanceKm - b.distanceKm);
             const names = around.map((p) => p.callsign?.trim() || p.registration || '').filter(Boolean);
-            void deps.server.radioContext([...new Set(names)].slice(0, CONTEXT_MAX));
+            void deps.server.radioContext([...new Set(names)].slice(0, CONTEXT_MAX), deps.callsignsByFeed?.() ?? {});
           }
           const reply = await deps.server.radioEvents(since);
           if (reply && running) {

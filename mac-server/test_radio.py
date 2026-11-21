@@ -106,5 +106,11 @@ check("chunk size does not matter", split(hiss(1) + tone(2.0) + hiss(1.5), chunk
 # A steady background (an open channel with engine noise) and speech over it.
 check("speech over steady noise", split(hiss(2, 400) + tone(1.5, 5000) + hiss(2, 400)), [1.9])
 
+# --- From real calls (2026-11-21)
+check("flight number ends at the sentence", tokens("Skywest 4129. Seven finishes. Stay away."), ["SKW4129"])
+check("tail fragment written in one piece", tokens("Skyhawk 570U, form contact Cleveland Center 124.4."), ["570U"])
+check("number groups still join inside a clause", tokens("Delta 18 30, descend and maintain 4,000."), ["DAL1830"])
+check("a comma ends the flight number", tokens("United 12, 34 heavy"), ["UAL12"])
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

@@ -51,12 +51,22 @@ LEG_WORDS = ("upwind", "crosswind", "downwind", "base", "final")
 RUNWAYS = {"10", "28", "18", "36"}  # Wood County's; others are passed through as heard
 
 
-def _normalize(text: str) -> list[str]:
-    """Lowercase words, punctuation gone, numbers kept as written ("4,000" -> "4000")."""
+BREAK = "|"  # where a sentence or clause ended (only when asked for)
+
+
+def _normalize(text: str, breaks: bool = False) -> list[str]:
+    """Lowercase words, punctuation gone, numbers kept as written ("4,000" -> "4000").
+
+    With `breaks`, the end of a sentence or clause is kept as a "|" word, so that a number is not
+    run together with whatever the next sentence starts with ("Skywest 4129. Seven..." is flight
+    4129, not 41297).
+    """
     t = text.lower().replace("’", "'")
     t = re.sub(r"(?<=\d),(?=\d{3}\b)", "", t)  # thousands separators
     t = re.sub(r"(?<=\d)-(?=\d)", " ", t)  # "3-4-0" -> "3 4 0"
-    t = re.sub(r"[^a-z0-9' ]+", " ", t)
+    if breaks:
+        t = re.sub(r"[.,;:!?]+(?=\s|$)", f" {BREAK} ", t)
+    t = re.sub(r"[^a-z0-9'| ]+" if breaks else r"[^a-z0-9' ]+", " ", t)
     return t.split()
 
 
@@ -105,6 +115,9 @@ def _join_number(tokens: list[str], start: int) -> tuple[str, int]:
     """
     chars = ""
     i = start
+    # Written in one piece: "570u" (Whisper's "Skyhawk 570U").
+    if i < len(tokens) and re.fullmatch(r"\d{1,5}[a-z]{1,2}", tokens[i]):
+        return tokens[i].upper(), i + 1
     while i < len(tokens) and tokens[i].isdigit() and len(chars) + len(tokens[i]) <= 5:
         chars += tokens[i]
         i += 1
@@ -121,7 +134,7 @@ _AIRLINE_NAMES = sorted(AIRLINES, key=lambda n: -len(n.split()))
 
 def callsign_tokens(text: str) -> list[str]:
     """Every callsign or tail-number fragment mentioned in a call, in the order heard, without repeats."""
-    words = _normalize(text)
+    words = _normalize(text, breaks=True)
     found: list[str] = []
 
     def add(token: str):

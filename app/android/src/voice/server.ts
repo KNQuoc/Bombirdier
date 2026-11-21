@@ -213,9 +213,9 @@ export function createServer(getUrl: () => string, getToken: () => string = () =
       }
     },
     /** Tells the Mac which callsigns are around, so Whisper knows what to expect on the radio. */
-    async radioContext(callsigns: string[]): Promise<void> {
+    async radioContext(callsigns: string[], byFeed: Record<string, string[]> = {}): Promise<void> {
       try {
-        await request(`${base()}/api/radio/context`, { method: 'POST', headers: headers(), body: JSON.stringify({ callsigns }) }, HEALTH_TIMEOUT_MS);
+        await request(`${base()}/api/radio/context`, { method: 'POST', headers: headers(), body: JSON.stringify({ callsigns, byFeed }) }, HEALTH_TIMEOUT_MS);
       } catch {
         // It only helps spelling: not worth reporting.
       }

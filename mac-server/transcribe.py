@@ -6,13 +6,38 @@ AVIATION_PROMPT = (
     "Aviation talk at Wood County Regional Airport, Bowling Green, Ohio. BGSU, Piper Archer, Piper Seminole, Skyhawk, "
     "helicopters, jets, radar, runway two eight, runway one zero, downwind, base, final, upwind, crosswind, Toledo Approach."
 )
-# For radio calls (feeds.py). Examples in the style of real calls steer Whisper toward callsigns,
-# headings, altitudes and frequencies instead of ordinary prose.
-RADIO_PROMPT = (
-    "Air traffic control radio: Toledo Approach and Wood County traffic. Northwest 52, descend and maintain 6,000. "
-    "November 12 Quebec Zulu, radar contact, altimeter 29.92. Skyhawk 4 Xray Yankee, right base runway 36. "
-    "Turn left heading 270, contact tower 118.1, squawk 4521, cleared ILS runway 25 approach."
+# For radio calls (feeds.py): words to expect, never whole example calls. With examples in the prompt,
+# real audio came back as the examples ("Skyhawk 4 Xray 276, cleared ILS runway 25" on a Center
+# frequency that was working airliners), and SkyWest flights were written down as Skyhawks.
+_AIRLINE_TALK = (
+    "Airline callsigns: Delta, United, American, Southwest, SkyWest, Endeavor, Brickyard, Envoy, Blue Streak, Jazz, "
+    "Air Canada, FedEx, UPS, ExecJet, Frontier, Spirit Wings, JetBlue, Allegiant, Air Wisconsin, Piedmont, Commutair. "
+    "Climb and maintain flight level three five zero, descend and maintain one zero thousand, direct, heading, "
+    "altimeter three zero two six, squawk, radar contact, contact Center, contact Approach, contact Tower, "
+    "expect the RNP approach, cleared ILS approach, runway one zero left, two eight right."
 )
+_LIGHT_TALK = (
+    "Light aircraft say their type and tail number in the phonetic alphabet: November, Archer, Seminole, Cessna, "
+    "Skyhawk, Warrior, Cirrus, Citation, King Air. Left downwind, right base, final, upwind, crosswind, short final, "
+    "departing, entering the pattern, clear of the runway, touch and go, full stop, runway two eight, one zero, one eight, three six."
+)
+RADIO_TALK = {
+    # A controller working airliners (Approach at a big airport, Center).
+    "airline": _AIRLINE_TALK,
+    # A tower or approach that works both.
+    "mixed": f"{_AIRLINE_TALK} {_LIGHT_TALK}",
+    # Pilots announcing themselves at an airport with no tower.
+    "pattern": f"Wood County traffic, Bowling Green. {_LIGHT_TALK}",
+}
+
+
+def radio_prompt(name: str, talk: str = "mixed") -> str:
+    """Whisper's prompt for one radio feed: who is talking, and the words to expect there."""
+    return f"Air traffic control radio, {name}. {RADIO_TALK.get(talk, RADIO_TALK['mixed'])}"
+
+
+# Kept for anything that still asks for one prompt for all radio.
+RADIO_PROMPT = radio_prompt("Toledo Approach")
 
 # Given silence or noise, Whisper makes things up: usually a word from its prompt, over and over.
 # Its own per-segment figures give that away, and such segments are dropped.
@@ -65,11 +90,25 @@ def transcribe(path: str, callsigns: list[str] | None = None, prompt: str = "") 
         if s.get("no_speech_prob", 0.0) < NO_SPEECH_PROB and s.get("compression_ratio", 1.0) < COMPRESSION_RATIO
     ]
     text = " ".join((s.get("text") or "").strip() for s in spoken).strip()
-    # The echo check is for voice questions only. A radio call can legitimately be word for word what
-    # the prompt's examples sound like, and the per-segment checks above already drop what Whisper invents.
-    if not prompt and len(text) >= ECHO_MIN_CHARS and text in _prompt(callsigns or []):
+    # Whisper reading its own prompt back. For a voice question: a long stretch of it. For a radio
+    # call: a run of the prompt's vocabulary with nothing else in it (a real call has a callsign or
+    # a number that the vocabulary list doesn't).
+    said = _prompt(callsigns or [], prompt)
+    if not prompt and len(text) >= ECHO_MIN_CHARS and text in said:
+        return ""
+    if prompt and _is_echo(text, prompt):
         return ""
     return text
+
+
+def _words(text: str) -> str:
+    return " ".join("".join(ch if ch.isalnum() else " " for ch in text.lower()).split())
+
+
+def _is_echo(text: str, prompt: str) -> bool:
+    """Three words or more that appear, in that order and together, in the prompt's vocabulary."""
+    words = _words(text)
+    return len(words.split()) >= 3 and f" {words} " in f" {_words(prompt)} "
 
 
 def warm_up() -> None:

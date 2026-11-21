@@ -94,6 +94,8 @@ export type HudState = {
   stations?: HudStation[];
   /** Leave the radar out this frame (something else is using the bottom of the view). */
   hideRadar?: boolean;
+  /** What to write under the compass when `planes` is empty, instead of "No planes · <status>". */
+  emptyText?: string;
 };
 
 /** A point as seen from where you stand. */
@@ -480,7 +482,7 @@ function drawAircraftLayer(
   if (s.planes.length === 0) {
     focusAnim = null;
     // A station's card goes in the same spot: it takes precedence over this note.
-    if (stationAim == null) label(ctx, w / 2, labelRowY(barY) + fs(18), `No planes · ${s.status}`, fs(11), COLORS.text, 'center');
+    if (stationAim == null) label(ctx, w / 2, labelRowY(barY) + fs(18), s.emptyText ?? `No planes · ${s.status}`, fs(11), COLORS.text, 'center');
     return NO_PLANES;
   }
 

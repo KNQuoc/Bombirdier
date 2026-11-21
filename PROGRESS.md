@@ -97,7 +97,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Setting: Radio calls On / Off
 - [x] Tests: 48 checks on the parser and splitter, a plane-matching test, and the whole pipeline run on test recordings (clean and radio-quality) including one that named real planes in the air: both were matched, one of them 116 km away
 - [x] Heard on real ATC audio (2026-11-21, five captured LiveATC tabs): callsigns come out right, other words are rougher
-- [ ] Tune for real audio: `RADIO_PROMPT` vocabulary (altimeter, RNP, runway numbers with left/right), and long calls where two transmissions run together
+- [x] Prompt reworked for real audio: vocabulary per kind of feed (`"talk"` in `feeds.json`), no example calls, per-feed callsign hints from the phone
+- [ ] Still rough on real audio: check the new prompt on a busy hour, and long calls where two transmissions run together
 - [ ] Done: Toledo Approach calls appear within a few seconds and mostly match the right plane (needs a real capture)
 
 ## Phase 5: controllers on headband + "Can I access?"
@@ -110,7 +111,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] `GET /api/feeds/{id}/audio` MP3 stream (one-time ticket for Wi-Fi); audio element on the phone; the radio goes silent while the assistant listens and low while it talks
 - [x] Connected view: LIVE pill, 🔇/💬 icons, last four calls scrolling where the radar is
 - [x] Separate audio/transcript switches, remembered per feed for the session
-- [ ] Done: "Can I access?" plays Toledo Approach within ~5 s; mute/hide/disconnect all work. Works in the desktop preview on the live captured feeds; **not yet tried on the phone or in the headset**
+- [ ] Done: "Can I access?" plays Toledo Approach within ~5 s; mute/hide/disconnect all work. Works in the desktop preview and on the Pixel (connect by voice, audio playing); **start-up time not measured, and looking at a controller icon in the headset not tried**
 - [ ] Sector guesses for Detroit and Cleveland Center are from sector names; check against what is actually heard
 
 ## Phase 6: stretch goals
@@ -127,6 +128,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 5 · On the Pixel: connecting to a feed by voice works and the live audio plays (Toledo, Wood County and Cleveland Center were all connected); mute and transcript commands ran. Not yet measured: how long the audio takes to start, and focus on a controller icon by looking at it in the headset. An empty compass bar now says "No planes within 50 km · 80 farther out are in the list ☰" (the bare "No planes" beside a radar showing the runways read as a fault).
+- 2026-11-21 · phase 4 · Callsign fixes from real calls: a flight number no longer runs into the next sentence ("Skywest 4129. Seven…"), tail fragments written in one piece are read ("570U"), and Whisper's radio prompt is now vocabulary per kind of feed (airline, mixed, pattern) with no example calls, after an example came back as a transcript and SkyWest flights were written as Skyhawks. The phone now tells the Mac which planes each controller is probably working, for spelling. One-word transcripts of static are dropped.
 - 2026-11-21 · phase 5 · Controllers on the compass bar with live/stopped dots, cards, and "Can I access?": connects to a feed, plays its audio on the phone and scrolls its transcript; mute, volume and transcript are separate voice switches. Plane cards say who the plane is likely talking to. Checked in the desktop preview against the live captured feeds; phone and headset still to do.
 - 2026-11-21 · phase 4 · **First real ATC audio.** Five LiveATC tabs captured; real calls transcribed with correct callsigns (Southwest 3454 on Columbus Approach, a Skyhawk on Cleveland Center). Content words are rougher ("altimeter" heard as "kilometer", "RNP" as "RMP"). Three faults found and fixed: call ids restarted with the server (new calls hidden from the capture page), a prompt label leaked into transcripts ("Callsigns, 945…"), noise transcribed as "!".
 - 2026-11-21 · phase 4 · Radio audio now comes in through a browser tab: `mac-server/capture.html` (at `/capture`) shares the sound of a Chrome tab playing LiveATC's own player, and the server cuts and transcribes it as before. No stream addresses anywhere. Five feeds listed; the phone follows all of them. Checked with a test recording pushed through the new endpoint and with a stand-in audio stream on the page; not yet with a real LiveATC tab.

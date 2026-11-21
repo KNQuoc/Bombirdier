@@ -92,6 +92,8 @@ async def listen_audio(feed_id: str):
 
 class RadioContext(BaseModel):
     callsigns: list[str] = []
+    # Per feed id: the planes that controller is probably working.
+    byFeed: dict[str, list[str]] = {}
 
 
 @router.get("/api/feeds")
@@ -110,7 +112,7 @@ async def check_feed(feed_id: str):
 
 @router.post("/api/radio/context")
 async def radio_context(ctx: RadioContext) -> dict:
-    feeds.set_around(ctx.callsigns)
+    feeds.set_around(ctx.callsigns, ctx.byFeed)
     return {"ok": True}
 
 

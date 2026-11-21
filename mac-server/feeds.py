@@ -274,14 +274,18 @@ class Feed:
                 w.setsampwidth(2)
                 w.setframerate(SAMPLE_RATE)
                 w.writeframes(call)
-            text = await gpu.run(transcribe.transcribe, path, around(), transcribe.RADIO_PROMPT)
+            prompt = transcribe.radio_prompt(self.cfg.get("name", self.id), self.cfg.get("talk", "mixed"))
+            text = await gpu.run(transcribe.transcribe, path, around(self.id), prompt)
         except Exception:  # noqa: BLE001 - one bad call isn't worth stopping the feed for
             text = ""
         finally:
             self._backlog -= 1
             os.unlink(path)  # calls are never kept
-        # Noise sometimes comes back as a stray mark ("!") rather than nothing: that isn't a call.
-        if not re.search(r"[A-Za-z]{2}", text):
+        # Noise sometimes comes back as a stray mark ("!") or a lone word ("The", for 25 seconds of
+        # static) rather than nothing: that isn't a call. Speech is at least a word a second.
+        seconds = len(call) / (SAMPLE_RATE * 2)
+        words = re.findall(r"[A-Za-z0-9]+", text)
+        if len(words) < 2 or (seconds >= 6 and len(words) / seconds < 0.5):
             return
         parsed = radio_parse.parse(text)
         event = {"id": _next_event_id(), "feedId": self.id, "ts": heard_at, "text": text, "seconds": round(len(call) / (SAMPLE_RATE * 2), 1), **parsed}
@@ -314,6 +318,7 @@ class Feed:
 
 _feeds: dict[str, Feed] = {}
 _around: tuple[float, list[str]] = (0.0, [])
+_around_by_feed: dict[str, list[str]] = {}
 AROUND_TTL_S = 30
 
 
@@ -336,16 +341,28 @@ def get(feed_id: str) -> Feed | None:
     return _feeds.get(feed_id)
 
 
-def set_around(callsigns: list[str]) -> None:
-    """The callsigns the phone can see, so Whisper knows which names to expect."""
-    global _around
-    clean = [c.strip().upper() for c in callsigns if isinstance(c, str) and 2 <= len(c.strip()) <= 10]
-    _around = (time.time(), clean[:200])
+def _clean(callsigns) -> list[str]:
+    return [c.strip().upper() for c in callsigns if isinstance(c, str) and 2 <= len(c.strip()) <= 10][:200] if isinstance(callsigns, list) else []
 
 
-def around() -> list[str]:
+def set_around(callsigns: list[str], by_feed: dict | None = None) -> None:
+    """The callsigns the phone can see, so Whisper knows which names to expect.
+
+    `by_feed` narrows it per feed (the planes that controller is probably working): a Center sector
+    150 km away talks to different planes than the ones nearest the user.
+    """
+    global _around, _around_by_feed
+    _around = (time.time(), _clean(callsigns))
+    _around_by_feed = {str(k): _clean(v) for k, v in (by_feed or {}).items()} if isinstance(by_feed, dict) else {}
+
+
+def around(feed_id: str | None = None) -> list[str]:
     at, callsigns = _around
-    return [radio_parse.spoken_form(c) for c in callsigns[:40]] if time.time() - at <= AROUND_TTL_S else []
+    if time.time() - at > AROUND_TTL_S:
+        return []
+    # That feed's own planes first, then the ones around the user, without repeats.
+    names = list(dict.fromkeys(_around_by_feed.get(feed_id or "", []) + callsigns))
+    return [radio_parse.spoken_form(c) for c in names[:40]]
 
 
 async def idle_watch() -> None:
