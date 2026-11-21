@@ -8,7 +8,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 |---|---|---|
 | 0. Sky-placement patch + rename | 🟡 | [#1](https://github.com/KNQuoc/Bombirdier/issues/1) |
 | 1. Live traffic to 250 nm + list view | 🟡 | [#2](https://github.com/KNQuoc/Bombirdier/issues/2) |
-| 2. Traffic-pattern overlay at 1G0 | ⬜ | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
+| 2. Traffic-pattern overlay at 1G0 | 🟡 | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
 | 3. AI voice assistant (Mac server + Aivana) | ⬜ | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
 | 4. Radio-call linking (LiveATC) | ⬜ | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
 | 5. Controllers on headband + "Can I access?" | ⬜ | [#6](https://github.com/KNQuoc/Bombirdier/issues/6) |
@@ -46,14 +46,16 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 2: traffic-pattern overlay at Wood County (1G0)
 
-- [ ] `src/airports/1g0.ts` (verify pattern directions against the FAA Chart Supplement)
-- [ ] Active runway setting (default 28)
-- [ ] `src/pattern/geometry.ts`: pattern legs as polylines
-- [ ] `src/pattern/classify.ts` with hysteresis + unit tests (one per leg)
-- [ ] Radar: runway, dashed pattern, leg labels
-- [ ] Card: "Right downwind · RWY 28"
-- [ ] Stretch: pattern drawn in the sky
-- [ ] Done: BGSU planes in the circuit get the right leg most of the time
+- [x] `src/airports/1g0.ts`: runways, pattern sides, TPA, elevation. Checked against FAA data effective 29 Oct 2026 (via AirNav): 10 left / 28 right / 18 left / 36 right, TPA 1,700 ft MSL, calm-wind runway 28 all confirmed; thresholds use the FAA coordinates
+- [x] Active runway setting (default 28)
+- [x] `src/pattern/geometry.ts`: pattern legs as lines (0.75 nm offset and extensions; level at TPA, then 800 ft AGL turning base, 500 ft turning final)
+- [x] `src/pattern/classify.ts` with hysteresis (a new leg has to win 2 checks, 2 s apart) + unit tests (one plane per leg, exclusions, runway 10 mirror, tracker)
+- [x] Radar: runways, dashed pattern, leg labels (DW, B, F, UW, XW); near the field it zooms to 5 km so the pattern is visible, with faint rim dots for traffic beyond
+- [x] Card: "Right downwind · RWY 28" (also in a plane opened from the list)
+- [x] Stretch: pattern drawn in the sky as a dashed line
+- [x] Fallback viewer altitude corrected to an ellipsoid height (171 m, was 205 m MSL), so near objects like the pattern sit at the right angle before GPS altitude arrives
+- [ ] Tune the classifier's numbers on live pattern traffic (so far checked only with hand-placed planes; no one was in the pattern at 23:00)
+- [ ] Done: BGSU planes in the circuit get the right leg most of the time (needs a flying day at the field)
 
 ## Phase 3: AI voice assistant
 
@@ -104,6 +106,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-20 · phase 2 · Wood County runways and traffic pattern on the radar and in the sky; pattern-leg classifier with hysteresis; leg on the card and radar; Active runway setting. 20 unit tests pass. Drawing checked with synthetic planes only: no live pattern traffic at night.
 - 2026-11-20 · phase 1 · BGSU planes are tagged, colored orange and filterable; trainer type names added (P28A = Piper PA-28 Archer, PA44 = Piper PA-44 Seminole). Checked on a live BGSU Archer (N337BG) 25 km west of 1G0.
 - 2026-11-20 · data check · adsb.lol vs adsb.fi over 250 nm: 410 shared planes, positions within ~100 m (median), altitudes within 50 ft, callsigns identical.
 - 2026-11-20 · phase 1 · Two-speed traffic (50 km AR feed + 250 nm wide feed), list view with filters/sorting/paging/open-plane, ☰ button, wider radar, on-demand routes from adsb.lol route files. Verified in desktop dev mode on live traffic; APK builds. Phone and daytime checks open.

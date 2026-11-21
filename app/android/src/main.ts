@@ -28,6 +28,8 @@ import { lensFov } from './camera-fov';
 import type { LensFov } from './camera-fov';
 import { declinationCorrectionDeg, fieldModel, updateFieldModel } from './compass';
 import { createCompassCalibration } from './compass-calibration';
+import { WOOD_COUNTY } from './airports/1g0';
+import { mslFtToEllipsoidM, runwayEnd } from './airports/airport';
 import { loadAppSettings, saveAppSettings } from './app-settings';
 import type { AppSettings } from './app-settings';
 import { cachedRoute, lookupRoutes } from './flights/adsb';
@@ -36,6 +38,8 @@ import type { GpsWatch } from './flights/gps';
 import { DEFAULT_RADIUS_KM, KM_PER_NM, MAX_AR_RADIUS_KM, WIDE_RADIUS_NM } from './flights/nearby';
 import { drawList, hitList } from './list/draw';
 import { createList } from './list/list';
+import { createPatternTracker, legCode, legLabel } from './pattern/classify';
+import { createAirportView } from './pattern/overlay';
 import { startTraffic } from './traffic/traffic';
 import type { Traffic } from './traffic/traffic';
 import type { WideMode } from './traffic/wide';
@@ -53,13 +57,16 @@ function parseLatLon(value: string | null): { lat: number; lon: number } | null 
   return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
 }
 
+/** The home field: its runways and traffic pattern are drawn, and planes near it get pattern legs. */
+const AIRPORT = WOOD_COUNTY;
 /** Sky markers: your eyes are this far above the ground (5'9"). Only used with FALLBACK_GROUND_M. */
 const EYE_HEIGHT_M = 1.75;
 /**
- * Ground elevation used until GPS reports an altitude (meters, ~Bowling Green, OH). Change it for
- * wherever you demo: plane altitudes are above sea level, so this matters far more than eye height.
+ * Ground height used until GPS reports an altitude: the home field's elevation, as meters above the
+ * WGS84 ellipsoid like GPS and ADS-B alt_geom (673 ft MSL = 205 m, minus the 34 m the geoid sits
+ * below the ellipsoid here = 171 m). Sky markers and the pattern in the sky are placed from it.
  */
-const FALLBACK_GROUND_M = 205;
+const FALLBACK_GROUND_M = mslFtToEllipsoidM(AIRPORT, AIRPORT.elevationFt);
 
 /** A typical ~6.3" phone: used only when the screen size or lens FOV can't be measured. */
 const FALLBACK = getPreset('generic');
@@ -70,6 +77,7 @@ const ipdInput = document.getElementById('ipd-input') as HTMLInputElement;
 const cameraSelect = document.getElementById('camera-select') as HTMLSelectElement;
 const radiusInput = document.getElementById('radius-input') as HTMLInputElement;
 const wideSelect = document.getElementById('wide-select') as HTMLSelectElement;
+const runwaySelect = document.getElementById('runway-select') as HTMLSelectElement;
 const listBtn = document.getElementById('list-btn') as HTMLButtonElement;
 const doneBtn = document.getElementById('done-btn') as HTMLButtonElement;
 const calibrateBtn = document.getElementById('calibrate-btn') as HTMLButtonElement;
@@ -138,6 +146,8 @@ async function initSettings() {
   if (settings.radiusKm != null) settings.radiusKm = Math.min(MAX_AR_RADIUS_KM, settings.radiusKm);
   radiusInput.value = settings.radiusKm == null ? '' : String(settings.radiusKm);
   wideSelect.value = appSettings.wideTraffic;
+  runwaySelect.replaceChildren(...AIRPORT.runways.map((r) => new Option(`${r.ident} (${r.patternSide} pattern)`, r.ident)));
+  runwaySelect.value = appSettings.activeRunway;
   await refreshCameraList();
 
   if (DEV) {
@@ -171,7 +181,7 @@ function readSettingsFromForm() {
   };
   radiusInput.value = settings.radiusKm == null ? '' : String(settings.radiusKm);
   saveSettings(settings);
-  appSettings = { ...appSettings, wideTraffic: wideSelect.value as WideMode };
+  appSettings = { ...appSettings, wideTraffic: wideSelect.value as WideMode, activeRunway: runwaySelect.value || appSettings.activeRunway };
   saveAppSettings(appSettings);
 }
 
@@ -208,6 +218,16 @@ function viewerAltM(): number {
   return gps?.get()?.altM ?? FALLBACK_GROUND_M + EYE_HEIGHT_M;
 }
 
+/** Which pattern leg each nearby plane is on, with hysteresis. Follows the Active runway setting. */
+const pattern = createPatternTracker(AIRPORT);
+const airportView = createAirportView(AIRPORT);
+
+/** "Right downwind · RWY 28" for a plane in the pattern, else null. */
+function legNote(id: string): string | null {
+  const leg = pattern.legOf(id)?.leg;
+  return leg ? legLabel(leg, runwayEnd(AIRPORT, appSettings.activeRunway)) : null;
+}
+
 /**
  * The plane list (☰). It outlives `traffic`, which is rebuilt whenever tracking restarts, so its
  * filter and page survive a trip to settings or the background.
@@ -219,6 +239,7 @@ const list = createList({
   arRadiusKm: () => traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM,
   lookupRoute: (p) => void lookupRoutes([p]),
   routeFor: cachedRoute,
+  noteFor: legNote,
 });
 
 /** Per-frame: compute the visible FOV and draw the HUD canvas in both eyes. */
@@ -241,19 +262,35 @@ function frame() {
   lastHalfFovDeg = halfFovDeg(halfTan);
 
   const feedState = traffic?.near.get();
+  // Pattern legs: classified from the AR feed's planes, written onto their cards and the radar.
+  const nearPlanes = feedState?.planes ?? [];
+  pattern.update(nearPlanes, appSettings.activeRunway, Date.now());
+  const legCodes: Record<string, string> = {};
+  const planes = nearPlanes.map((p) => {
+    const leg = pattern.legOf(p.id)?.leg;
+    if (!leg) return p;
+    const code = legCode(leg);
+    if (code) legCodes[p.id] = code;
+    return { ...p, note: legLabel(leg, runwayEnd(AIRPORT, appSettings.activeRunway)) };
+  });
+  const viewer = gps?.get() ?? null;
+  const field = viewer ? airportView(viewer, appSettings.activeRunway) : null;
   const listView = list.view();
   const opened = listView?.opened ?? null;
   const hud: HudState = {
     headingDeg: currentHeading(),
     halfTan,
     // Only the AR feed's planes get compass icons and sky brackets, however much the list holds.
-    planes: feedState?.planes ?? [],
+    planes,
     status: feedState?.status ?? '',
     timeMs: performance.now(),
     voice: null,
     pitchDeg: currentPitch(),
     viewerAltM: viewerAltM(),
-    radarRangeKm,
+    // At the field the radar zooms in on the pattern (unless a range was asked for); the list's
+    // radar (below) fits its own planes instead.
+    radarRangeKm: radarRangeKm ?? field?.patternRadarKm ?? null,
+    airport: field ? { ...field.overlay, legCodes } : null,
   };
   // Looking straight at the plane you opened: the panel steps aside (it would sit on top of the
   // plane) and the regular card under its bracket takes over until you look away.
@@ -262,6 +299,7 @@ function frame() {
   if (listView) {
     // The list's panel takes the card's place, and the radar shows what the list holds.
     hud.showCard = !showPanel;
+    if (radarRangeKm == null) hud.radarRangeKm = null;
     const openedShown = !opened || opened.lost || listView.matched.some((p) => p.id === opened.plane.id);
     hud.radarPlanes = openedShown ? listView.matched : [...listView.matched, opened!.plane];
     if (opened && !opened.lost) {

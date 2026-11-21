@@ -250,6 +250,161 @@ try {
     assert.deepEqual(adsb.parseRoute({ _airports: [atl] }, 41.39, -83.63), [null, null]);
   });
 
+  // ---- Phase 2: Wood County's traffic pattern ----
+  const { WOOD_COUNTY } = await vite.ssrLoadModule('/src/airports/1g0.ts');
+  const A = await vite.ssrLoadModule('/src/airports/airport.ts');
+  const G = await vite.ssrLoadModule('/src/pattern/geometry.ts');
+  const C = await vite.ssrLoadModule('/src/pattern/classify.ts');
+  const O = await vite.ssrLoadModule('/src/pattern/overlay.ts');
+  const close = (actual, expected, tolerance, what) =>
+    assert.ok(Math.abs(actual - expected) <= tolerance, `${what}: ${actual} is not within ${tolerance} of ${expected}`);
+  const RWY_LAT = 41.3917; // 10/28 runs east-west along this latitude
+  const [WEST_END, EAST_END] = [-83.63522, -83.61992]; // thresholds of 10 and 28
+  const KM_LON = 0.01197; // one km of longitude here, in degrees
+  const KM_LAT = 0.008983;
+  /** A plane near Wood County at `altMsl` ft, sending both altitudes like a real one. */
+  const near = (lat, lon, trackDeg, altMsl, over = {}) =>
+    plane({ lat, lon, trackDeg, altitudeFt: altMsl, altitudeGeomFt: altMsl - 112, groundSpeedKt: 90, typeCode: 'P28A', ...over });
+
+  test('runway and pattern geometry', () => {
+    const r28 = A.runwayEnd(WOOD_COUNTY, '28');
+    close(G.runwayLengthM(WOOD_COUNTY, r28), 1280, 10, '10/28 length (4,199 ft)');
+    close(G.runwayLengthM(WOOD_COUNTY, A.runwayEnd(WOOD_COUNTY, '18')), 801, 10, '18/36 length (2,628 ft)');
+    // Runway 28's far end is runway 10's threshold.
+    const far = G.toRunwayFrame(A.runwayEnd(WOOD_COUNTY, '10').threshold, 271, r28);
+    close(far.x, 1280, 10, 'far end x');
+    close(far.y, 0, 25, 'far end y');
+    assert.equal(far.relTrack, 0);
+
+    // 10 left and 28 right both put the pattern north of the runway; 18 left and 36 right both east.
+    for (const ident of ['10', '28']) {
+      const downwind = G.buildPattern(WOOD_COUNTY, ident).legs.find((l) => l.leg === 'downwind');
+      for (const pt of downwind.points) close(pt.lat - RWY_LAT, 0.75 * 1.852 * KM_LAT, 0.0005, `RWY ${ident} downwind is 0.75 nm north`);
+    }
+    for (const ident of ['18', '36']) {
+      const downwind = G.buildPattern(WOOD_COUNTY, ident).legs.find((l) => l.leg === 'downwind');
+      for (const pt of downwind.points) close(pt.lon - -83.63425, 0.75 * 1.852 * KM_LON, 0.0006, `RWY ${ident} downwind is 0.75 nm east`);
+    }
+    assert.deepEqual(G.LEGS.map((l) => G.legHeading(r28, l)), [271, 1, 91, 181, 271]);
+    assert.deepEqual(G.LEGS.map((l) => G.legHeading(A.runwayEnd(WOOD_COUNTY, '10'), l)), [91, 1, 271, 181, 91]);
+
+    const p28 = G.buildPattern(WOOD_COUNTY, '28');
+    assert.deepEqual(p28.legs.map((l) => l.leg), G.LEGS);
+    // Level at pattern altitude on crosswind and the first half of downwind, then down to the threshold.
+    assert.equal(p28.legs[1].points[0].altFtMsl, 1700);
+    assert.equal(p28.legs[2].points[1].altFtMsl, 1700);
+    assert.equal(p28.legs[4].points[1].altFtMsl, 673 + 50);
+    assert.equal(p28.legs[4].points[0].altFtMsl, 673 + 500);
+    // Each leg starts where the one before ended.
+    for (let i = 1; i < p28.legs.length; i++) assert.deepEqual(p28.legs[i].points[0], p28.legs[i - 1].points.at(-1));
+    const dense = G.densify(p28.legs[2].points, 150);
+    assert.ok(dense.length > 20 && dense.length < 40, `downwind sampled into ${dense.length} points`);
+    assert.deepEqual(dense[0], p28.legs[2].points[0]);
+    assert.deepEqual(dense.at(-1), p28.legs[2].points.at(-1));
+  });
+
+  // One hand-placed plane per leg, runway 28 in use (right traffic, pattern to the north).
+  const onLeg = {
+    final: near(41.39162, EAST_END + 1.5 * KM_LON, 271, 1100), // 1.5 km out on the centerline
+    upwind: near(41.3918, WEST_END - 0.8 * KM_LON, 271, 1200), // just past the far end, climbing out
+    crosswind: near(RWY_LAT + 0.7 * KM_LAT, WEST_END - 1.39 * KM_LON, 1, 1600), // heading north
+    downwind: near(RWY_LAT + 1.39 * KM_LAT, -83.6276, 91, 1700), // abeam mid-field, heading east
+    base: near(RWY_LAT + 0.7 * KM_LAT, EAST_END + 1.39 * KM_LON, 181, 1400), // heading south
+    entry: near(RWY_LAT + 2.5 * KM_LAT, -83.6396, 136, 1700), // cutting in at 45 degrees from the north-west
+    departure: near(41.3918, WEST_END - 4 * KM_LON, 271, 2000), // 4 km straight out
+  };
+
+  test('classifier: one plane per leg, runway 28', () => {
+    for (const [leg, p] of Object.entries(onLeg)) {
+      const r = C.classify(p, WOOD_COUNTY, '28');
+      assert.equal(r.leg, leg, `expected ${leg}`);
+      assert.ok(r.confidence >= C.MIN_CONFIDENCE, `${leg} confidence ${r.confidence}`);
+    }
+  });
+
+  test('classifier: who is left out', () => {
+    const dw = onLeg.downwind;
+    const none = (p, why) => assert.equal(C.classify(p, WOOD_COUNTY, '28').leg, null, why);
+    none({ ...dw, onGround: true }, 'on the ground');
+    none({ ...dw, kind: 'helicopter' }, 'helicopter');
+    none({ ...dw, groundSpeedKt: 12 }, 'too slow to be flying');
+    none({ ...dw, trackDeg: null }, 'no track');
+    none({ ...dw, altitudeFt: 3500, altitudeGeomFt: 3388 }, 'overflying well above the pattern');
+    none({ ...dw, altitudeFt: null, altitudeGeomFt: null }, 'no altitude');
+    none(near(RWY_LAT + 10 * KM_LAT, -83.6276, 91, 1700), '10 km away');
+    none(near(RWY_LAT + 1.39 * KM_LAT, -83.6276, 1, 1700), 'on the downwind line but flying north across it');
+    // Pressure altitude can be far off; the GPS altitude is what counts.
+    assert.equal(C.classify({ ...dw, altitudeFt: 2600, altitudeGeomFt: 1588 }, WOOD_COUNTY, '28').leg, 'downwind');
+    // No GPS altitude: fall back to pressure altitude.
+    assert.equal(C.classify({ ...dw, altitudeGeomFt: null }, WOOD_COUNTY, '28').leg, 'downwind');
+  });
+
+  test('classifier: runway 10 mirrors it', () => {
+    // Same spot north of the field, but now downwind is flown westbound (left traffic for 10).
+    const westbound = near(RWY_LAT + 1.39 * KM_LAT, -83.6276, 271, 1700);
+    assert.equal(C.classify(westbound, WOOD_COUNTY, '10').leg, 'downwind');
+    assert.equal(C.classify(onLeg.downwind, WOOD_COUNTY, '10').leg, null); // eastbound up there fits nothing on 10
+    // What was final for 28 is the departure end of 10: a plane there heading east is on upwind.
+    assert.equal(C.classify(near(41.39162, EAST_END + 1.5 * KM_LON, 91, 1100), WOOD_COUNTY, '10').leg, 'upwind');
+  });
+
+  test('leg labels', () => {
+    const [r28, r10] = [A.runwayEnd(WOOD_COUNTY, '28'), A.runwayEnd(WOOD_COUNTY, '10')];
+    assert.equal(C.legLabel('downwind', r28), 'Right downwind · RWY 28');
+    assert.equal(C.legLabel('base', r10), 'Left base · RWY 10');
+    assert.equal(C.legLabel('final', r28), 'Final · RWY 28');
+    assert.equal(C.legLabel('upwind', r28), 'Upwind · RWY 28');
+    assert.equal(C.legLabel('entry', r28), 'Entering the pattern · RWY 28');
+    assert.deepEqual(['upwind', 'crosswind', 'downwind', 'base', 'final', 'entry'].map(C.legCode), ['UW', 'XW', 'DW', 'B', 'F', null]);
+  });
+
+  test('tracker: a new leg has to win twice', () => {
+    const t = C.createPatternTracker(WOOD_COUNTY);
+    const as = (leg) => [{ ...onLeg[leg], id: 'bg1' }];
+    t.update(as('downwind'), '28', 0);
+    assert.equal(t.legOf('bg1').leg, 'downwind'); // first sighting counts straight away
+    t.update(as('base'), '28', 500);
+    assert.equal(t.legOf('bg1').leg, 'downwind'); // too soon: checks are 2 s apart
+    t.update(as('base'), '28', 2000);
+    assert.equal(t.legOf('bg1').leg, 'downwind'); // one reading isn't enough
+    t.update(as('downwind'), '28', 4000);
+    t.update(as('base'), '28', 6000);
+    assert.equal(t.legOf('bg1').leg, 'downwind'); // the streak was broken, so it starts over
+    t.update(as('base'), '28', 8000);
+    assert.equal(t.legOf('bg1').leg, 'base'); // twice in a row
+    // Leaving the pattern takes two checks as well.
+    const gone = [{ ...onLeg.base, id: 'bg1', altitudeFt: 5000, altitudeGeomFt: 4888 }];
+    t.update(gone, '28', 10000);
+    assert.equal(t.legOf('bg1').leg, 'base');
+    t.update(gone, '28', 12000);
+    assert.equal(t.legOf('bg1'), null);
+    // Changing the runway in use starts everyone from scratch.
+    t.update(as('downwind'), '28', 14000);
+    t.update(as('downwind'), '28', 16000);
+    assert.equal(t.legOf('bg1').leg, 'downwind');
+    t.update(as('downwind'), '10', 16500);
+    assert.equal(t.legOf('bg1'), null); // an eastbound plane north of the field is on no leg for runway 10
+    assert.equal(t.legOf('nobody'), null);
+  });
+
+  test('airport view from where you stand', () => {
+    const view = O.createAirportView(WOOD_COUNTY);
+    const atField = view(WOOD_COUNTY.position, '28');
+    assert.equal(atField.patternRadarKm, 5);
+    assert.equal(atField.overlay.runways.length, 2);
+    assert.equal(atField.overlay.pattern.length, 7); // 6 corners, the abeam-threshold point on downwind
+    assert.ok(atField.overlay.pattern.every((p) => p.distanceKm < 3.5), 'whole pattern within 3.5 km of the field');
+    // Downwind in the sky: pattern altitude as an ellipsoid height (1,700 ft MSL = 518 m, minus 34 m).
+    const top = Math.max(...atField.overlay.skyPattern.map((p) => p.altM));
+    close(top, 484, 1, 'pattern altitude');
+    assert.equal(view(WOOD_COUNTY.position, '28'), atField); // cached while you stand still
+    assert.notEqual(view(WOOD_COUNTY.position, '10'), atField);
+    const tolAirport = view({ lat: 41.587, lon: -83.808 }, '28'); // Toledo Express, about 26 km away
+    assert.equal(tolAirport.patternRadarKm, null);
+    close(tolAirport.distanceKm, 26.4, 1, 'distance from KTOL');
+    assert.equal(view({ lat: 42.2, lon: -83.35 }, '28'), null); // Detroit: too far to show at all
+  });
+
   const dataArg = process.argv.indexOf('--data');
   if (dataArg > 0) {
     const raw = JSON.parse(readFileSync(process.argv[dataArg + 1], 'utf-8'));

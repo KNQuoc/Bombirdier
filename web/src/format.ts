@@ -96,7 +96,7 @@ function verticalRate(p: Plane): string | null {
  *   DL 1234 · Delta Air Lines
  *   Airbus A321-200 · LGA → ATL
  *   4,200 ft · ↓ 800 fpm · 180 kt · 8.4 km
- * Missing fields are dropped.
+ * Missing fields are dropped. A plane with a `note` gets it as a fourth line.
  */
 export function cardLines(p: Plane): string[] {
   const title = [flightLabel(p), p.airline].filter(Boolean).join(' · ');
@@ -111,5 +111,5 @@ export function cardLines(p: Plane): string[] {
   ]
     .filter(Boolean)
     .join(' · ');
-  return [title, type, stats];
+  return p.note ? [title, type, stats, p.note] : [title, type, stats];
 }

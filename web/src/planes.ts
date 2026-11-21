@@ -43,6 +43,8 @@ export type Plane = {
    * the card next to any status tag.
    */
   tag?: string | null;
+  /** Optional extra line at the bottom of the plane's card, e.g. "Right downwind · RWY 28". */
+  note?: string | null;
   /** Optional CSS color for such a plane's icon, bracket and radar dot when it has no special status. */
   accent?: string | null;
 };

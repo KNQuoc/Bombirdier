@@ -59,6 +59,8 @@ export type ListDeps = {
   /** Start a route lookup for one plane; `routeFor` returns it once it has arrived. */
   lookupRoute: (p: Plane) => void;
   routeFor: (callsign: string) => [string | null, string | null] | undefined;
+  /** An extra line for a plane, e.g. its pattern leg ("Right downwind · RWY 28"), or null. */
+  noteFor?: (id: string) => string | null;
 };
 
 const COMPASS_WORDS = [
@@ -158,7 +160,8 @@ export function createList(deps: ListDeps) {
     const flight = stats.split(' · ').slice(0, -1).join(' · ');
     const lost = !now;
     const inAr = !lost && plane.distanceKm <= deps.arRadiusKm();
-    const lines = [title, type, flight, lost ? 'No longer in range' : whereIs(plane, viewerAltM)].filter(Boolean);
+    const note = lost ? null : (deps.noteFor?.(plane.id) ?? null);
+    const lines = [title, type, flight, note, lost ? 'No longer in range' : whereIs(plane, viewerAltM)].filter((l): l is string => !!l);
     return { plane, tag: cardTag(plane), lines, inAr, lost };
   }
 

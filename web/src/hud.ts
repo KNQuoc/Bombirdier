@@ -12,7 +12,7 @@
 // Voice ("hey grok") status and answers show as subtitles near the bottom.
 // A heading-up radar mini-map sits in the lower left (hidden while a voice answer is showing).
 // Optional extras for callers (all off by default): radarPlanes / radarRangeKm, highlightIds, guideId,
-// showCard. COLORS, fs, label and roundRect are exported so a caller can draw its own panel in the
+// showCard, and airport (runways + traffic pattern on the radar and in the sky, leg codes by the dots). COLORS, fs, label and roundRect are exported so a caller can draw its own panel in the
 // same style on the same canvas after drawHud().
 // The middle of the view stays clear.
 
@@ -67,6 +67,25 @@ export type HudState = {
   guideId?: string | null;
   /** false = no info card for the focused plane (something else is using that space). Default: shown. */
   showCard?: boolean;
+  /** A nearby airport to draw: runways and traffic pattern on the radar, the pattern in the sky. */
+  airport?: AirportOverlay | null;
+};
+
+/** A point as seen from where you stand. */
+export type RadarPoint = { bearingDeg: number; distanceKm: number };
+
+export type AirportOverlay = {
+  /** Each runway's two ends: drawn on the radar as a thick line. */
+  runways: [RadarPoint, RadarPoint][];
+  /** The traffic pattern in the order it's flown: drawn on the radar as a dashed line. */
+  pattern: RadarPoint[];
+  /** Short leg code per plane id ("DW", "B", "F"...), drawn next to that plane's radar dot. */
+  legCodes?: Record<string, string>;
+  /**
+   * The same pattern with altitudes (meters, same reference as viewerAltM), sampled closely: drawn
+   * as a faint dashed line in the sky when sky markers are on.
+   */
+  skyPattern?: (RadarPoint & { altM: number })[];
 };
 
 const M_PER_FT = 0.3048;
@@ -127,11 +146,12 @@ const HINT_MS = 15000;
 export function drawHud(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudState): HudResult {
   ctx.clearRect(0, 0, w, h);
   ctx.textBaseline = 'middle';
+  if (s.airport?.skyPattern) drawSkyPattern(ctx, w, h, s, s.airport.skyPattern);
   const result = drawPlanes(ctx, w, h, s);
   // The radar steps aside while a voice question/answer is on screen (they share the bottom of the view).
   const voiceShowing = !!(s.voice?.answer || s.voice?.transcript);
   const radarPlanes = s.radarPlanes ?? s.planes;
-  if (s.headingDeg != null && radarPlanes.length && !voiceShowing) {
+  if (s.headingDeg != null && (radarPlanes.length || s.airport) && !voiceShowing) {
     drawRadar(ctx, w, h, s, radarPlanes, s.headingDeg, result.focus?.id ?? null);
   }
   if (s.voice) drawVoice(ctx, w, h, s.voice, s.timeMs);
@@ -198,6 +218,8 @@ function drawRadar(
   wedge(halfFovDeg(s.halfTan), 'rgba(79, 195, 247, 0.18)');
   wedge(FOCUS_HALF_DEG, 'rgba(255, 201, 77, 0.22)');
 
+  if (s.airport) drawRadarAirport(ctx, cx, cy, r, range, toXY, s.airport);
+
   // Compass: tick marks every 30° around the rim, and N/E/S/W just outside it (N highlighted).
   ctx.strokeStyle = COLORS.hudDim;
   ctx.lineWidth = 1;
@@ -230,6 +252,19 @@ function drawRadar(
     ctx.arc(x, y, marked.has(p.id) ? 3.2 : dot, 0, Math.PI * 2);
     ctx.fill();
     if (s.highlightIds?.includes(p.id)) drawPulse(ctx, x, y, 4, s.timeMs);
+    const code = s.airport?.legCodes?.[p.id];
+    if (code) label(ctx, x + 4, y - 4, code, fs(7.5), COLORS.text, 'left', true);
+  }
+  // Planes past a fixed range: faint dots on the rim, so you know which way the rest of the traffic is.
+  if (s.radarRangeKm != null) {
+    ctx.fillStyle = 'rgba(79, 195, 247, 0.5)';
+    for (const p of planes) {
+      if (p.distanceKm <= range) continue;
+      const [x, y] = toXY(p.bearingDeg, 1);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // You.
@@ -241,6 +276,79 @@ function drawRadar(
 
   // Range below the disc, outside the ring of N/E/S/W labels.
   label(ctx, cx, cy + r + fs(20), `${range} km`, fs(8), 'rgba(255,255,255,0.75)', 'center');
+}
+
+/** Runways (thick) and the traffic pattern (dashed) on the radar, clipped to the disc. */
+function drawRadarAirport(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  range: number,
+  toXY: (bearingDeg: number, frac: number) => readonly [number, number],
+  airport: AirportOverlay,
+) {
+  const path = (points: RadarPoint[]) => {
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const [x, y] = toXY(p.bearingDeg, p.distanceKm / range);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = COLORS.hud;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 2.5]);
+  path(airport.pattern);
+  ctx.setLineDash([]);
+  ctx.strokeStyle = COLORS.text;
+  ctx.lineWidth = 2.5;
+  for (const runway of airport.runways) path(runway);
+  ctx.restore();
+}
+
+/** The traffic pattern as a faint dashed line where it really is in the sky. Needs sky mode (pitch + altitude). */
+function drawSkyPattern(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  s: HudState,
+  points: (RadarPoint & { altM: number })[],
+) {
+  if (s.headingDeg == null || s.pitchDeg == null || s.viewerAltM == null) return;
+  const { headingDeg, pitchDeg, viewerAltM, halfTan } = s;
+  const projected = points.map((p) =>
+    projectSky(p.bearingDeg, elevationDeg(p.altM - viewerAltM, p.distanceKm), headingDeg, pitchDeg, halfTan, w, h),
+  );
+  // A point just in front of the camera plane projects wildly far away: don't draw lines to those.
+  const usable = (pt: SkyPoint | null): pt is SkyPoint => !!pt && Math.abs(pt.x - w / 2) < w * 3 && Math.abs(pt.y - h / 2) < h * 3;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(79, 195, 247, 0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([6, 6]);
+  ctx.shadowColor = COLORS.shadow;
+  ctx.shadowBlur = 2;
+  ctx.beginPath();
+  let drawing = false;
+  for (const pt of projected) {
+    if (!usable(pt)) {
+      drawing = false;
+    } else if (drawing) {
+      ctx.lineTo(pt.x, pt.y);
+    } else {
+      ctx.moveTo(pt.x, pt.y);
+      drawing = true;
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudState): HudResult {
@@ -334,7 +442,11 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
       cardTop = Math.max(cardTop, pt.y + r + 8);
     }
   }
-  if (s.showCard !== false) drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, cardTag(focus.p));
+  if (s.showCard !== false) {
+    // A card hanging low under a sky bracket can reach the radar: it moves over rather than cover it.
+    const radar = { x: w * RADAR_X, y: h * RADAR_Y, r: w * RADAR_R + fs(14) };
+    drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, cardTag(focus.p), radar);
+  }
   return { focus: { ...focus.p, offsetDeg: focus.off }, inView };
 }
 
@@ -628,6 +740,8 @@ function drawCard(
   t: number,
   accent: string,
   tag: string | null,
+  /** A circle the card must not cover (the radar): the card slides right of it if they'd overlap. */
+  avoid?: { x: number; y: number; r: number },
 ) {
   const pad = 6;
   const titleSize = fs(15);
@@ -649,8 +763,11 @@ function drawCard(
   }
   const cardW = Math.min(w - 12, Math.max(...widths) + pad * 2 + 4);
   const cardH = pad * 2 + tagH + titleSize + (lines.length - 1) * (bodySize + lineGap);
-  const x = Math.max(6, Math.min(w - cardW - 6, mx - cardW / 2));
+  let x = Math.max(6, Math.min(w - cardW - 6, mx - cardW / 2));
   const y = topY - (1 - ease) * 8;
+  if (avoid && y + cardH > avoid.y - avoid.r && y < avoid.y + avoid.r && x < avoid.x + avoid.r && x + cardW > avoid.x - avoid.r) {
+    x = Math.min(w - cardW - 6, avoid.x + avoid.r + 2);
+  }
 
   ctx.fillStyle = COLORS.panel;
   roundRect(ctx, x, y, cardW, cardH, 6);
