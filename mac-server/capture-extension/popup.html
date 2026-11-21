@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bombirdier radio capture</title>
+<style>
+  :root { --bg: #ffffff; --ink: #14181f; --soft: #5b6472; --line: #dfe3ea; --accent: #1f6feb; --ok: #1a7f37; --bad: #c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171b21; --ink: #e8ebf0; --soft: #98a2b3; --line: #2a303a; --accent: #6aa5ff; --ok: #4ac26b; --bad: #ff7b72; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 340px; padding: 12px 14px 14px; background: var(--bg); color: var(--ink); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--soft); margin: 14px 0 6px; }
+  .tab { color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
+  select, button { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 5px 8px; }
+  select { width: 100%; margin-bottom: 8px; }
+  button { cursor: pointer; }
+  button.go { width: 100%; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 7px 8px; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  label { display: flex; gap: 6px; align-items: center; color: var(--soft); margin-top: 8px; }
+  .msg { margin-top: 8px; min-height: 1.2em; color: var(--soft); }
+  .msg.error { color: var(--bad); }
+  .row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  .row .name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .name.here { font-weight: 650; }
+  .meter { flex: 0 0 70px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--ok); }
+  .row.bad .meter i { background: var(--bad); }
+  .note { color: var(--soft); font-size: 12px; }
+  .empty { color: var(--soft); }
+</style>
+</head>
+<body>
+  <h1>Bombirdier radio capture</h1>
+  <div class="tab" id="tab"></div>
+  <div id="here"></div>
+  <div class="msg" id="msg"></div>
+  <h2>Capturing now</h2>
+  <div id="list"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

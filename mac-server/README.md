@@ -68,7 +68,9 @@ LiveATC's pages offer an in-browser player and say the streams may not be used i
 2. For a feed, press **Open its page**, and on LiveATC press the green **LISTEN** next to the feed the card names. The player opens in a new tab named "Listening to: …" and starts playing. Leave that tab open.
 3. Back on the capture page press **Capture tab**, pick the "Listening to: …" tab (the player, not the page with the LISTEN button) in Chrome's window, leave **Also share tab audio** on, and Share. The meter moves when sound is coming through, and calls appear under the feed as they are written down.
 
-Repeat for each feed you want. A captured tab goes quiet on the Mac's speakers unless you tick the box at the top first. Capturing stops when you press Stop, close either tab, or end sharing in Chrome; nothing reconnects by itself.
+Repeat for each feed you want. A captured tab goes quiet on the Mac's speakers unless you tick the box at the top first.
+
+Chrome shows a "Sharing … to this tab" bar on the capture page for every tab shared this way, and there is no setting to hide them. The **Bombirdier extension** in `capture-extension/` captures without them: install it once (its README has the steps), then on each player tab click its toolbar button and press **Capture this tab**. The capture page still has to be open. Capturing stops when you press Stop, close either tab, or end sharing in Chrome; nothing reconnects by itself.
 
 The feeds on that page come from `feeds.json`:
 
@@ -127,6 +129,7 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `speech.py` | Wording plane data for speech (distances in nautical miles, said as "miles") |
 | `feeds.py`, `feeds.json` | Radio feeds: audio in (from a captured browser tab, or ffmpeg for a stream or test file) → calls → Whisper → events |
 | `capture.html` | The page at `/capture` that sends a Chrome tab's sound to the server |
+| `capture-extension/` | Optional Chrome extension: captures tabs for that page without Chrome's sharing bars |
 | `splitter.py` | Cuts a continuous audio stream into individual calls |
 | `radio_parse.py` | Callsigns and position reports out of a transcribed call |
 | `radio.py` | The feed and radio endpoints, including the live audio stream the phone plays |

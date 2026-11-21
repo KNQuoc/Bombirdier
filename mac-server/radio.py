@@ -42,8 +42,9 @@ async def capture_page():
 @router.post("/api/feeds/{feed_id}/audio")
 async def push_audio(feed_id: str, request: Request):
     """Raw audio from the capture page: 16 kHz, mono, 16-bit little-endian."""
-    # Only the capture page sends this. Another website open in the same browser could otherwise
-    # post made-up "radio" here: a browser always says where a cross-site request comes from.
+    # Only the capture page sends this (the capture extension hands its audio to that page). Another
+    # website open in the same browser could otherwise post made-up "radio" here: a browser always
+    # says where a cross-site request comes from.
     origin = request.headers.get("origin")
     if origin and urlparse(origin).hostname not in ("localhost", "127.0.0.1", "::1"):
         return JSONResponse({"error": "audio is only accepted from the capture page"}, status_code=403)

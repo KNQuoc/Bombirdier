@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Bombirdier radio capture",
+  "version": "0.2.0",
+  "description": "Hands the sound of a tab playing an air traffic control feed to the Bombirdier capture page on this Mac, without Chrome's sharing bars.",
+  "minimum_chrome_version": "116",
+  "permissions": ["tabCapture", "activeTab"],
+  "host_permissions": ["http://localhost:8787/*"],
+  "content_scripts": [{ "matches": ["http://localhost:8787/capture*"], "js": ["relay.js"], "run_at": "document_idle" }],
+  "action": { "default_title": "Bombirdier radio capture", "default_popup": "popup.html" }
+}

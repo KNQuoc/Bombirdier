@@ -67,6 +67,7 @@
     <li>Come back here and press <b>Capture tab</b> for that feed.</li>
     <li>In Chrome's window, choose the <b>Chrome Tab</b> named "Listening to: …" (the player, not the page with the LISTEN button), leave <b>Also share tab audio</b> on, then Share.</li>
   </ol>
+  <p class="soft">Tired of Chrome's "Sharing … to this tab" bars? With the Bombirdier extension (<code>mac-server/capture-extension</code>) there are none: on the player tab, click the extension's toolbar button and press <b>Capture this tab</b>. This page still has to stay open.</p>
   <label class="option"><input type="checkbox" id="hear"> Keep hearing a feed through the Mac's speakers while it is captured (applies to the next capture you start)</label>
   <p id="problem" hidden></p>
   <div id="feeds"></div>
@@ -224,22 +225,35 @@ async function start(card) {
     say(card, err && err.name === 'NotAllowedError' ? 'Nothing was shared.' : `Could not capture: ${err && err.message ? err.message : err}`, !(err && err.name === 'NotAllowedError'));
     return;
   }
-  const track = stream.getAudioTracks()[0];
-  if (!track) {
+  if (!stream.getAudioTracks().length) {
     stream.getTracks().forEach((t) => t.stop());
     say(card, 'No sound came with that. Pick a Chrome Tab (not a window or the screen) and leave "Also share tab audio" on.', true);
     return;
   }
+  await attach(card, stream, {});
+}
 
+/**
+ * Starts sending a stream's audio to the server as this card's feed. Returns '' or what went wrong.
+ * `viaExtension`: the stream came from the Bombirdier extension (no sharing bars); `tabId` is the
+ * tab it captures, so the extension can tell you which tab is which.
+ */
+async function attach(card, stream, { viaExtension = false, tabId = null }) {
+  if (card.capture) stop(card, '');
+  const track = stream.getAudioTracks()[0];
   let ctx;
   try {
     ctx = await audioContext();
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
-    say(card, String(err && err.message ? err.message : err), true);
-    return;
+    const why = String(err && err.message ? err.message : err);
+    say(card, why, true);
+    return why;
   }
   const source = ctx.createMediaStreamSource(stream);
+  // A tab captured through the extension is silent on the speakers unless it is played from here.
+  const monitor = viaExtension && $hear.checked;
+  if (monitor) source.connect(ctx.destination);
   const node = new AudioWorkletNode(ctx, 'chunker', {
     numberOfInputs: 1,
     numberOfOutputs: 1,
@@ -251,11 +265,12 @@ async function start(card) {
   // Its output is silence; connecting it is what keeps Chrome running the node.
   node.connect(ctx.destination);
 
-  const capture = { stream, source, node, queue: [], sending: false, failing: false, dropped: 0, sent: 0, quietSince: Date.now() };
+  const capture = { stream, source, node, queue: [], sending: false, failing: false, dropped: 0, sent: 0, quietSince: Date.now(), level: 0, viaExtension, tabId };
   card.capture = capture;
   node.port.onmessage = (e) => {
     if (card.capture !== capture) return;
     const { pcm, peak } = e.data;
+    capture.level = peak;
     // Meter: speech on a radio feed peaks well under full scale, so stretch it.
     card.el.bar.style.width = `${Math.min(100, Math.round(Math.sqrt(peak) * 130))}%`;
     if (peak > 0.004) capture.quietSince = Date.now();
@@ -267,15 +282,59 @@ async function start(card) {
     pump(card, capture);
     const quietS = Math.round((Date.now() - capture.quietSince) / 1000);
     if (capture.failing) say(card, 'The server is not taking the audio. Is it still running?', true);
-    else if (quietS >= 20) say(card, `Capturing, but that tab has been silent for ${quietS} s. Normal on a quiet frequency; if it never moves, check you shared the "Listening to: …" player tab.`);
-    else say(card, 'Capturing. Leave this page and the feed’s tab open.');
+    else if (quietS >= 20) say(card, `Capturing, but that tab has been silent for ${quietS} s. Normal on a quiet frequency; if it never moves, check it is the "Listening to: …" player tab.`);
+    else say(card, `Capturing${viaExtension ? ' (through the extension)' : ''}. Leave this page and the feed’s tab open.`);
   };
   track.addEventListener('ended', () => {
-    if (card.capture === capture) stop(card, 'Sharing ended (the tab was closed, or sharing was stopped in Chrome).');
+    if (card.capture === capture) stop(card, viaExtension ? 'Capture ended (the tab was closed or went to another page).' : 'Sharing ended (the tab was closed, or sharing was stopped in Chrome).');
   });
   say(card, 'Capturing. Leave this page and the feed’s tab open.');
   paint(card);
+  return '';
 }
+
+// ---- The Bombirdier extension (mac-server/capture-extension) -------------------------------------
+// Captured through the extension, a tab's audio arrives here with none of Chrome's "Sharing ... to
+// this tab" bars. The extension's popup talks to this page through a small script it runs in it
+// (relay.js): it asks what feeds there are and what is being captured, and hands over the audio of
+// a tab as an id that only this tab may turn into a stream.
+window.addEventListener('message', async (e) => {
+  if (e.source !== window || !e.data || e.data.source !== 'bombirdier-extension') return;
+  const { id, msg } = e.data;
+  const reply = (r) => window.postMessage({ source: 'bombirdier-page', id, reply: r }, location.origin);
+  if (!msg || typeof msg.type !== 'string') return reply(null);
+  if (msg.type === 'status') {
+    const now = Date.now();
+    return reply({
+      problem: $problem.hidden ? '' : $problem.textContent,
+      feeds: [...cards.values()].map((c) => ({ id: c.feed.id, name: c.feed.name, listenTo: c.feed.listenTo || null })),
+      captures: [...cards.values()]
+        .filter((c) => c.capture)
+        .map((c) => ({ feedId: c.feed.id, feedName: c.feed.name, tabId: c.capture.tabId, level: c.capture.level, failing: c.capture.failing, quietS: Math.round((now - c.capture.quietSince) / 1000) })),
+    });
+  }
+  const card = cards.get(msg.feedId);
+  if (!card) return reply({ ok: false, error: 'this page does not know that feed (reload it)' });
+  if (msg.type === 'stop') {
+    stop(card, 'Stopped.');
+    return reply({ ok: true });
+  }
+  if (msg.type === 'start') {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: String(msg.streamId) } }, video: false });
+    } catch (err) {
+      return reply({ ok: false, error: `Chrome would not hand over that tab's audio (${err && err.name ? err.name : err})` });
+    }
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach((t) => t.stop());
+      return reply({ ok: false, error: 'that tab gave no audio' });
+    }
+    const problemText = await attach(card, stream, { viaExtension: true, tabId: typeof msg.tabId === 'number' ? msg.tabId : null });
+    return reply(problemText ? { ok: false, error: problemText } : { ok: true });
+  }
+  reply(null);
+});
 
 // Chunks go up one at a time, in order: two requests in flight could arrive swapped.
 async function pump(card, capture) {
