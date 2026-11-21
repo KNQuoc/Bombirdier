@@ -168,6 +168,27 @@ async def health(request: Request) -> dict:
     return {"ok": True, "whisper": transcribe.state(), "tts": tts.state(), "aivana": llm.available(), "tokenNeeded": not _from_this_mac(request)}
 
 
+@app.get("/api/weather/wind")
+async def wind(lat: float, lon: float):
+    """The wind at the weather station nearest a point (for picking the runway the wind favors)."""
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return JSONResponse({"error": "bad position"}, status_code=400)
+    report = await forecast.nearest("metar", lat, lon)
+    if not report:
+        return {"wind": None}
+    direction = report.get("wdir")
+    return {
+        "wind": {
+            "dirDeg": direction if isinstance(direction, (int, float)) else None,  # "VRB" = variable
+            "speedKt": report.get("wspd") or 0,
+            "gustKt": report.get("wgst") or None,
+            "station": flightinfo.station_name(report),
+            "distanceNm": round(report.get("distanceNm") or 0, 1),
+            "raw": (report.get("rawOb") or "")[:200],
+        }
+    }
+
+
 def _callsigns(ctx: dict) -> list[str]:
     planes = [ctx.get("focus")] + list(ctx.get("inView") or []) + list(ctx.get("bgsu") or [])
     rows = (ctx.get("list") or {}).get("rows") or []

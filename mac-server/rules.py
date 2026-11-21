@@ -136,6 +136,23 @@ def quick(text: str, context: dict) -> dict | None:
     if re.fullmatch(r"(reset|auto|automatic)( the)? radar( range| zoom)?|radar auto(matic)?|reset( the)? zoom", t):
         return _reply("Radar back to automatic.", {"type": "radar_range", "nm": 0})
 
+    # Only some planes in the sky ("only show helicopters in the sky"). The list has its own filter;
+    # this one decides what gets an icon on the compass bar and a bracket in the sky.
+    _sky = r"(?:in the sky|in the view|in view|in my view|on the bar|on the compass|on the headband|in ar|up there|around me)"
+    m = re.fullmatch(rf"(?:only |just )?(?:show|display|give)(?: me)?(?: only| just)?(?: the)? ({_KINDS})(?: only)? {_sky}(?: only)?", t) or re.fullmatch(
+        rf"(?:only|just)(?: show(?: me)?| display)?(?: the)? ({_KINDS})(?: {_sky})?|(?:show|display)(?: me)? (?:only|just)(?: the)? ({_KINDS})(?: {_sky})?|hide (?:everything|all|all planes|all the planes) (?:but|except|other than)(?: the)? ({_KINDS})(?: {_sky})?", t
+    )
+    if m:
+        words = next(g for g in m.groups() if g)
+        return _reply("", {"type": "sky_filter", "filter": dict(KIND_WORDS[words])})
+    if re.fullmatch(rf"(?:apply|use|put|copy) (?:that|the|this|the same|the lists?)(?: list)? filter (?:to|on|in) the sky(?: too| as well)?|filter the sky(?: too| as well| the same way| like the list)?|(?:same|that) (?:filter )?{_sky}(?: too| as well)?", t):
+        return _reply("", {"type": "sky_filter", "fromList": True})
+    if re.fullmatch(
+        rf"(?:show|display)(?: me)? (?:everything|all(?: the)? (?:planes|aircraft|traffic)) {_sky}(?: again)?|(?:show|display)(?: me)? everything again|(?:clear|remove|reset|drop|turn off)(?: the)? sky(?: filter)?|sky filter off|no sky filter|stop filtering(?: the sky)?|unhide (?:everything|the planes|all the planes)|show the rest(?: again)?",
+        t,
+    ):
+        return _reply("", {"type": "sky_filter"})
+
     # How far out the compass bar and the sky show planes ("set the range to 75 kilometers").
     _what = r"(?:bar |view |viewing |plane |planes |ar |sky |compass |headband |display )?(?:range|radius|distance)"
     m = re.fullmatch(

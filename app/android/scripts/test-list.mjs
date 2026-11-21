@@ -502,6 +502,51 @@ try {
     assert.equal(movedM(300, 5).alt, 800);
   });
 
+  // ---- Phase 6: the runway the wind favors ----
+  const WIND = await vite.ssrLoadModule('/src/pattern/wind.ts');
+  test('runway from the wind', () => {
+    const pick = (dirDeg, speedKt) => WIND.runwayForWind(WOOD_COUNTY, { dirDeg, speedKt })?.ident ?? null;
+    assert.equal(pick(190, 8), '18'); // from the south: land to the south
+    assert.equal(pick(350, 12), '36');
+    assert.equal(pick(270, 10), '28');
+    assert.equal(pick(100, 6), '10');
+    assert.equal(pick(230, 10), '28'); // between 18 and 28: 40 degrees off 28, 51 off 18
+    assert.equal(pick(220, 10), '18');
+    assert.equal(pick(190, 3), null); // too light to decide
+    assert.equal(pick(null, 9), null); // variable
+    const r = WIND.runwayForWind(WOOD_COUNTY, { dirDeg: 209, speedKt: 10 });
+    assert.equal(r.ident, '18');
+    close(r.headwindKt, 8.7, 0.1, 'headwind');
+    close(r.crosswindKt, 5, 0.1, 'crosswind');
+    assert.equal(WIND.windWords({ dirDeg: 194, speedKt: 8, gustKt: null }), '190 at 8');
+    assert.equal(WIND.windWords({ dirDeg: 4, speedKt: 12, gustKt: 19 }), '360 at 12 gusting 19');
+    assert.equal(WIND.windWords({ dirDeg: null, speedKt: 3, gustKt: null }), 'variable at 3');
+    assert.equal(WIND.windWords({ dirDeg: 0, speedKt: 0, gustKt: null }), 'calm');
+  });
+
+  // ---- Phase 6: a filter on the sky ----
+  const SKY = await vite.ssrLoadModule('/src/sky-filter.ts');
+  test('sky filter: what it keeps, and what it is called', () => {
+    const sky = [
+      plane({ id: 'h1', kind: 'helicopter', typeCode: 'EC35' }),
+      plane({ id: 'j1', typeCode: 'B738', callsign: 'SWA407', altitudeFt: 36000 }),
+      plane({ id: 'j2', typeCode: 'A320', callsign: 'DAL18', altitudeFt: 9000 }),
+      plane({ id: 'g1', typeCode: 'P28A', registration: 'N337BG', onGround: true, altitudeFt: null }),
+    ];
+    const ids = (f) => SKY.applySkyFilter(sky, SKY.skyFilterFrom(f)).map((p) => p.id);
+    assert.deepEqual(ids({ kind: 'helicopters' }), ['h1']);
+    assert.deepEqual(ids({ airline: 'SWA', minAltFt: 30000 }), ['j1']);
+    // No filter, or nothing valid in it: everything stays, ground traffic included.
+    assert.deepEqual(ids(null), ['h1', 'j1', 'j2', 'g1']);
+    assert.deepEqual(ids({ nonsense: true }), ['h1', 'j1', 'j2', 'g1']);
+    assert.equal(SKY.skyFilterFrom({ sort: 'altitude', page: 2 }), null); // sorting and paging mean nothing in the sky
+    // The sky never hid planes on the ground, so a filter doesn't start to (the list does by default).
+    assert.deepEqual(ids({ kind: 'props' }), ['g1']);
+    assert.deepEqual(ids({ kind: 'props', onGround: 'hide' }), []);
+    assert.equal(SKY.skyFilterLabel(SKY.skyFilterFrom({ kind: 'helicopters' })), 'helicopters');
+    assert.equal(SKY.skyFilterLabel(SKY.skyFilterFrom({ fleet: 'bgsu', maxAltFt: 3000 })), 'BGSU, <3,000 ft');
+  });
+
   // ---- Phase 5: who is a plane talking to, and the controllers on the compass bar ----
   const W = await vite.ssrLoadModule('/src/atc/whoControls.ts');
   const ATC = await vite.ssrLoadModule('/src/atc/facilities.ts');

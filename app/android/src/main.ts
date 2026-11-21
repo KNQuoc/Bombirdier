@@ -24,6 +24,9 @@ import type { OrientationTracker } from '@web/orientation';
 import type { HudResult, HudState } from '@web/hud';
 import type { Plane } from '@web/planes';
 import { createStereoView } from '@web/stereo';
+import { applySkyFilter, skyFilterFrom, skyFilterLabel } from './sky-filter';
+import { drawSkyFilterChip } from './sky-filter-draw';
+import type { ListFilter } from './list/filter';
 import type { StereoView } from '@web/stereo';
 import { lensFov } from './camera-fov';
 import type { LensFov } from './camera-fov';
@@ -44,6 +47,8 @@ import { createList } from './list/list';
 import { createPatternTracker, legCode, legLabel } from './pattern/classify';
 import { createAirportView } from './pattern/overlay';
 import { createRunwayDetector } from './pattern/runway';
+import { WIND_GOOD_FOR_MS, runwayForWind, windWords } from './pattern/wind';
+import type { Wind } from './pattern/wind';
 import { FACILITIES, facilityForFeed } from './atc/facilities';
 import type { Facility } from './atc/facilities';
 import { createStations } from './atc/stations';
@@ -126,6 +131,8 @@ let devHeading = 0;
 let devPitch = 0;
 /** The plane the view is centered on, as of the last frame drawn. */
 let lastFocusId: string | null = null;
+/** "Only show helicopters in the sky": what the compass bar, the sky and the radar are limited to. null = everything. */
+let skyFilter: ListFilter | null = null;
 /** Radar range override in km (null = fit the planes shown). Voice sets this in Phase 3; dev mode: R. */
 let radarRangeKm: number | null = null;
 const DEV_RADAR_RANGES_KM = [null, 50, 100 * KM_PER_NM, WIDE_RADIUS_NM * KM_PER_NM];
@@ -265,16 +272,41 @@ const runwayDetector = createRunwayDetector(AIRPORT);
  * The runway everything is drawn and named for: the one set by hand, or in Auto the one the traffic
  * has shown, or until then the calm-wind runway.
  */
+/** The latest wind near the field (from the Mac), for when no traffic shows which runway is in use. */
+let wind: Wind | null = null;
+let windAskedAt = 0;
+const freshWind = () => (wind && Date.now() - wind.at <= WIND_GOOD_FOR_MS ? wind : null);
+
 function runwayInUse(): string {
   if (appSettings.activeRunway !== AUTO_RUNWAY) return appSettings.activeRunway;
-  return runwayDetector.current()?.ident ?? AIRPORT.defaultRunway;
+  // What planes are actually doing beats what the wind suggests; the wind beats an assumption.
+  const w = freshWind();
+  return runwayDetector.current()?.ident ?? (w && runwayForWind(AIRPORT, w)?.ident) ?? AIRPORT.defaultRunway;
 }
 
 /** How the runway in use was arrived at, for the info line and the assistant. */
 function runwaySource(): string {
   if (appSettings.activeRunway !== AUTO_RUNWAY) return 'set by hand';
   const seen = runwayDetector.current();
-  return seen ? `from ${seen.by} ${seen.strong ? 'landing or taking off' : 'on downwind'}` : 'assumed: calm-wind runway, no pattern traffic seen yet';
+  if (seen) return `from ${seen.by} ${seen.strong ? 'landing or taking off' : 'on downwind'}`;
+  const w = freshWind();
+  if (w && runwayForWind(AIRPORT, w)) return `from the wind, ${windWords(w)} at ${w.station}; no pattern traffic seen yet`;
+  return w ? `calm-wind runway: wind ${windWords(w)} at ${w.station}, no pattern traffic seen yet` : 'assumed: calm-wind runway, no pattern traffic or wind report yet';
+}
+
+/** Asks the Mac for the wind near the field every ten minutes, and says so if it changes the runway in use. */
+async function refreshWind() {
+  if (!serverHealth || Date.now() - windAskedAt < 10 * 60_000) return;
+  windAskedAt = Date.now();
+  const before = runwayInUse();
+  const w = await macServer.wind(AIRPORT.position.lat, AIRPORT.position.lon);
+  if (!w) {
+    windAskedAt = Date.now() - 8 * 60_000; // try again in a couple of minutes
+    return;
+  }
+  wind = { ...w, at: Date.now() };
+  console.info(`[pattern] wind ${windWords(wind)} at ${wind.station}: runway ${runwayInUse()} (${runwaySource()})`);
+  if (view && appSettings.activeRunway === AUTO_RUNWAY && runwayInUse() !== before) showToast(`Runway ${runwayInUse()} (wind ${windWords(wind)})`);
 }
 
 /** "Right downwind · RWY 28" for a plane in the pattern, else null. */
@@ -366,6 +398,8 @@ function voiceContext() {
     traffic: { total: all.length, radiusNm: WIDE_RADIUS_NM },
     // How far out planes get icons on the bar and brackets in the sky ("set the range to 75").
     arRadiusKm: traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM,
+    // What the sky is limited to, if anything ("only show helicopters in the sky").
+    skyFilter: skyFilter ? skyFilterLabel(skyFilter) : null,
     // Roughly where you are (to about a kilometer), for the weather and the forecast nearest you.
     viewer: viewer ? { lat: Math.round(viewer.lat * 100) / 100, lon: Math.round(viewer.lon * 100) / 100 } : null,
     list: listView
@@ -411,6 +445,12 @@ const assistant = createAssistant({
       saveAppSettings(appSettings);
       runwaySelect.value = ident;
       return true;
+    },
+    setSkyFilter: (filter) => {
+      skyFilter = filter === 'list' ? skyFilterFrom(list.state().filter) : skyFilterFrom(filter);
+      const near = traffic?.near.get().planes ?? [];
+      console.info(`[sky] filter ${skyFilter ? JSON.stringify(skyFilter) : 'off'}`);
+      return { label: skyFilter ? skyFilterLabel(skyFilter) : null, matching: applySkyFilter(near, skyFilter).length, withinKm: traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM };
     },
     setArRadiusKm: (km) => {
       // Same setting as "AR radius" on the settings screen: it sticks.
@@ -511,6 +551,7 @@ const tilt = createTiltTrigger((rollDeg) => talk(`head tilt (${Math.round(rollDe
 async function checkServer() {
   if (!view || suspended) return;
   serverHealth = await macServer.health();
+  void refreshWind();
 }
 
 /** The voice line of the info display: is the server there, and how the last question went. */
@@ -570,6 +611,7 @@ function frame() {
     const inPattern = [leg && legLabel(leg, runwayEnd(AIRPORT, activeRunway)), said && `📻 said ${said}`].filter(Boolean).join(' · ');
     return { ...p, note: [inPattern, talkingTo].filter(Boolean).join('\n') };
   });
+  const shown = applySkyFilter(planes, skyFilter);
   const viewer = gps?.get() ?? null;
   const field = viewer ? airportView(viewer, activeRunway) : null;
   const listView = list.view();
@@ -577,8 +619,9 @@ function frame() {
   const hud: HudState = {
     headingDeg: currentHeading(),
     halfTan,
-    // Only the AR feed's planes get compass icons and sky brackets, however much the list holds.
-    planes,
+    // Only the AR feed's planes get compass icons and sky brackets, however much the list holds,
+    // and of those only what the sky filter lets through.
+    planes: shown,
     status: feedState?.status ?? '',
     timeMs: performance.now(),
     voice: assistant.hud(),
@@ -592,7 +635,10 @@ function frame() {
   // The compass bar and the sky only carry planes within the AR radius. When that's empty but the
   // list (and its radar) holds planes farther out, say so: a bare "No planes" next to a radar full
   // of dots reads as a fault.
-  if (!planes.length && feedState?.status.startsWith('live')) {
+  if (skyFilter && !shown.length && planes.length) {
+    // The filter is why the sky is empty: say that, and how to undo it.
+    hud.emptyText = `No ${skyFilterLabel(skyFilter)} within ${Math.round(traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM)} km · ${planes.length} other${planes.length === 1 ? '' : 's'} hidden (say “show everything in the sky”)`;
+  } else if (!planes.length && feedState?.status.startsWith('live')) {
     const fartherOut = traffic?.all().length ?? 0;
     const within = `No planes within ${Math.round(traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM)} km`;
     hud.emptyText = fartherOut ? `${within} · ${fartherOut} farther out are in the list ☰` : `${within} · ${feedState.status}`;
@@ -644,6 +690,7 @@ function frame() {
     lastHud = drawHud(eye.ctx, width, height, hud);
     lastFocusId = lastHud.focus?.id ?? null;
     if (listView && showPanel) drawList(eye.ctx, width, height, listView, hud.headingDeg, hud.timeMs);
+    if (skyFilter) drawSkyFilterChip(eye.ctx, width, height, skyFilter);
     if (connectedView) drawConnected(eye.ctx, width, height, connectedView, transcriptShowing && !voiceShowing);
     // The one-line subtitle is for when no transcript is on screen (it would say the same thing twice).
     if (radioCall && !transcriptShowing) drawRadio(eye.ctx, width, height, radioCall, traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM);
@@ -1070,6 +1117,8 @@ window.addEventListener('keydown', (e) => {
     if (assistant.busy()) assistant.finish();
     else void assistant.listen();
   } else if (e.key === 'l' || e.key === 'L') toggleList();
+  // S = the list's filter on the sky (again = off).
+  else if (e.key === 's' || e.key === 'S') skyFilter = skyFilter ? null : skyFilterFrom(list.state().filter);
   // C = listen to the controller in the middle of the view (again = stop). M = mute, T = transcript.
   else if (e.key === 'c' || e.key === 'C') {
     const feedId = lastHud.station && stationBrief(lastHud.station.id)?.feedId;

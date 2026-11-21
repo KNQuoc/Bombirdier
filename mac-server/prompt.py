@@ -111,6 +111,8 @@ def context_text(ctx: dict) -> str:
     lines.append("BGSU planes flying: " + ("; ".join(_plane_line(p) for p in bgsu[:5]) if bgsu else "none seen right now."))
     if ctx.get("arRadiusKm"):
         lines.append(f"The compass bar and the sky show planes within {round(ctx['arRadiusKm'])} km (ar_range changes it; the list covers everything farther out).")
+    if ctx.get("skyFilter"):
+        lines.append(f"Sky filter on: only planes matching {ctx['skyFilter']} are shown on the compass bar and in the sky (sky_filter with no filter shows everything again).")
     traffic = ctx.get("traffic") or {}
     if traffic.get("total") is not None:
         lines.append(f"Traffic known: {traffic['total']} aircraft within {traffic.get('radiusNm', 250)} miles.")

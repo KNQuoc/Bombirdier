@@ -17,6 +17,12 @@ export type ActionDeps = {
   setRunway: (ident: string) => boolean;
   /** How far out the compass bar and the sky show planes. null = the default. */
   setArRadiusKm: (km: number | null) => void;
+  /**
+   * Only show matching planes in the sky. 'list' = the list's current filter; null = everything.
+   * Returns what is now in force: the filter's label (null = none), how many planes it lets
+   * through, and the AR radius they are within.
+   */
+  setSkyFilter: (filter: unknown | 'list' | null) => { label: string | null; matching: number; withinKm: number };
   /** How far the data reaches, for "no helicopters within 250 miles". */
   coverageNm: () => number;
   /** How many planes the app knows about at all. Zero means there's no data, not an empty sky. */
@@ -159,6 +165,13 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
       case 'set_runway':
         if (a.runway && !deps.setRunway(a.runway)) say = `There's no runway ${a.runway} here.`;
         break;
+      case 'sky_filter': {
+        const now = deps.setSkyFilter(a.fromList ? 'list' : (a.filter ?? null));
+        if (!now.label) say = a.fromList ? 'The list has no filter to use, so the sky shows everything.' : 'Showing everything in the sky again.';
+        else if (!now.matching) say = `Only ${now.label} in the sky now. None within ${Math.round(now.withinKm)} kilometers right now.`;
+        else say = `Only ${now.label} in the sky now: ${now.matching} within ${Math.round(now.withinKm)} kilometers.`;
+        break;
+      }
       case 'ar_range':
         if (typeof a.km === 'number' && a.km >= 0) deps.setArRadiusKm(a.km > 0 ? a.km : null);
         break;

@@ -12,7 +12,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 | 3. AI voice assistant (Mac server + Aivana) | 🟡 | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
 | 4. Radio-call linking (LiveATC) | 🟡 | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
 | 5. Controllers on headband + "Can I access?" | 🟡 | [#6](https://github.com/KNQuoc/Bombirdier/issues/6) |
-| 6. Stretch goals | ⬜ | [#7](https://github.com/KNQuoc/Bombirdier/issues/7) |
+| 6. Stretch goals | 🟡 | [#7](https://github.com/KNQuoc/Bombirdier/issues/7) |
 
 ---
 
@@ -77,7 +77,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] On the phone (Pixel 7, 2026-11-21): recording, the Mac link over USB, actions and speech playback work; Kien's spoken question was transcribed correctly. First attempt failed: the speech-level threshold was tuned on a laptop and the phone's mic read far quieter (fixed: threshold follows the background)
 - [x] Two-finger tap = talk (phone in hand); `run.sh` keeps `adb reverse` alive (Android drops it on every USB reconnect)
 - [x] Flight questions (asked for by Kien after "I don't have the estimated time of arrival"): distance flown and to go, estimated arrival, estimated time since departure, and live weather at the origin, the destination and under the plane (`mac-server/flightinfo.py`). Answered on the Mac in under a second
-- [ ] Real airline times (scheduled / actual departure and arrival): no free source found. adsb.lol has none, its flight-history pages refuse programs, and Aivana's web search found nothing live. Needs a flight-status API key if Kien wants them
+- [x] Real takeoff times: from the OpenSky Network's track of the flight (`mac-server/opensky.py`), when it tracked the plane from the ground
+- [x] Weather where you are and official airport forecasts (`mac-server/forecast.py`); range of the bar by voice, up to 200 km
+- [ ] Airline schedule times (scheduled departure and arrival): no free source. adsb.lol has none, its flight-history pages refuse programs, and Aivana's web search got live flights wrong. Needs a flight-status API key if Kien wants them
 - [ ] Head-tilt trigger in the headset: not confirmed yet (the two-finger tap was used)
 - [x] Voice chosen by Kien: `af_heart` (US female), which is the default
 - [ ] Done: "what's that plane?" answered in < ~3 s (0.8 s on the Mac with test audio; phone not measured); "show me all the jets above thirty thousand feet" opens the filtered list (works, about 3–6 s through Aivana)
@@ -87,7 +89,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] How the audio gets in (Kien's decision, 2026-11-21): **through a browser tab**. LiveATC only offers an in-browser player now and says streams may not be used in third-party products, so the server never connects to its streams. The feed plays in LiveATC's player in a Chrome tab; `http://localhost:8787/capture` shares that tab's sound with the server (`"kind": "tab"` in `feeds.json`, `POST /api/feeds/{id}/audio`)
 - [x] `mac-server/feeds.json`: five feeds, each with its LiveATC page and name there (checked 2026-11-21): **Wood County CTAF** 122.975 (the one that matters most: BGSU pattern calls; the plan assumed LiveATC didn't cover it), **Toledo Tower and Approach** (one feed mixing 118.1, 126.1, 134.35, Ground and Clearance), **Detroit Approach (Arrival West)** 124.05, **Cleveland Center (Bluffton High)** 119.325, **Columbus Approach (North)** 125.95. The Detroit and Cleveland sectors are a guess from their names. Fort Wayne not looked up (LiveATC refused the lookup)
 - [x] Phone follows every feed at once: all calls from the home frequency (first in `feeds.json`), and from the others only calls that name a plane the app knows
-- [ ] First real capture: open a LiveATC tab, press Capture tab (the permission click is Kien's), and see whether it keeps going for an hour with the tabs in the background
+- [x] First real capture (2026-11-21): five LiveATC tabs, first through Chrome's tab sharing, then through the capture extension (`mac-server/capture-extension/`, no sharing bars)
+- [ ] See whether capture keeps going for an hour or more with the tabs in the background
 - [x] Feed worker: ffmpeg decode → call splitting (`splitter.py`) → Whisper with a radio prompt → parse → ring buffer of 200; one connection per feed, started by the phone asking for calls, stopped 2 min after it last asked, reconnect at most every 30 s
 - [x] Feed health: `GET /api/feeds`, `POST /api/feeds/{id}/check`
 - [x] `POST /api/radio/context` (callsigns around, said the radio way, go into Whisper's prompt)
@@ -117,11 +120,12 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 6: stretch goals
 
-- [ ] RTL-SDR feed for Wood County CTAF (122.975)
-- [ ] List filters applied to the sky view
+- [ ] RTL-SDR feed for Wood County CTAF (122.975). Needs a dongle. Less pressing than the plan thought: LiveATC does carry Wood County's CTAF, and it is the first feed in `feeds.json`
+- [x] List filters applied to the sky view: "only show helicopters in the sky", "apply that filter to the sky", "show everything in the sky again" (`src/sky-filter.ts`). A marker on the HUD says when one is on, and it is not kept across restarts
 - [ ] X-Plane mode
-- [ ] Auto active runway
-- [ ] Pattern in the sky (if not done in Phase 2)
+- [x] Auto active runway: from the traffic (done in Phase 2: `pattern/runway.ts`), and now from the wind when no traffic has shown it (`pattern/wind.ts`: the nearest weather report through the Mac, asked every ten minutes; under 4 knots or variable = the calm-wind runway)
+- [x] Pattern in the sky (done in Phase 2)
+- [ ] Sky filter and wind runway on the phone: built and checked in the desktop preview on live data; not yet tried on the phone
 
 ---
 
@@ -129,6 +133,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 6 · Two stretch goals. **Filters in the sky**: "only show helicopters in the sky" limits the compass bar, the brackets and the radar; "apply that filter to the sky" copies the list's filter; a marker on the HUD shows it is on. **Runway from the wind**: with no pattern traffic to go by, the runway most into the wind at the nearest weather station is used (live: "Runway 10, from the wind, 130 at 4 at Toledo Executive"). Both checked in the desktop preview on live data; 31 app tests and 251 server checks pass.
 - 2026-11-21 · phase 4 · Capture extension confirmed in Kien's Chrome: all five player tabs captured through it, no sharing bars, the same audio levels arriving at the server as with the old way. No call has been transcribed through it yet (nobody was talking, 3 am).
 - 2026-11-21 · phase 4 · Capture extension 0.3.1: reloading the extension cut its link to an already-open capture page ("The capture page is not answering", seen by Kien). It now puts its relay script back into the page itself. Checked in Chrome 149 against the real capture page.
 - 2026-11-21 · phase 4 · Capture extension 0.3: "Open all feeds" opens every player tab from one button (player pages bookmarked in `feeds.json`), and on a player tab one click on the toolbar button or Option+Shift+C captures it with no popup. Capturing all tabs from a single click is not possible: Chrome only gives an extension a tab's audio on a tab the user invoked it on. Still not run end to end in a real Chrome.

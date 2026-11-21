@@ -17,6 +17,8 @@ export type VoiceAction = {
   n?: number;
   nm?: number;
   runway?: string;
+  /** sky_filter: use the list's current filter. */
+  fromList?: boolean;
   /** ar_range: how far out the bar shows planes, km; 0 = the default. */
   km?: number;
   /** connect_feed: the radio feed's id. */
@@ -210,6 +212,24 @@ export function createServer(getUrl: () => string, getToken: () => string = () =
         if (!r.ok) return null;
         const ticket = ((await r.json()) as Record<string, unknown>).ticket;
         return typeof ticket === 'string' && /^[\w-]{8,80}$/.test(ticket) ? `${base()}/api/feeds/${encodeURIComponent(feedId)}/audio?ticket=${ticket}` : null;
+      } catch {
+        return null;
+      }
+    },
+    /** The wind at the weather station nearest a point, or null if the Mac couldn't say. */
+    async wind(lat: number, lon: number): Promise<{ dirDeg: number | null; speedKt: number; gustKt: number | null; station: string; distanceNm: number | null } | null> {
+      try {
+        const r = await request(`${base()}/api/weather/wind?lat=${lat.toFixed(3)}&lon=${lon.toFixed(3)}`, { headers: headers() }, HEALTH_TIMEOUT_MS + 2000);
+        if (!r.ok) return null;
+        const w = ((await r.json()) as Record<string, unknown>).wind as Record<string, unknown> | null;
+        if (!w || typeof w.speedKt !== 'number') return null;
+        return {
+          dirDeg: typeof w.dirDeg === 'number' ? w.dirDeg : null,
+          speedKt: w.speedKt,
+          gustKt: typeof w.gustKt === 'number' ? w.gustKt : null,
+          station: String(w.station ?? '').slice(0, 40),
+          distanceNm: typeof w.distanceNm === 'number' ? w.distanceNm : null,
+        };
       } catch {
         return null;
       }

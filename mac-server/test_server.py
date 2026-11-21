@@ -446,5 +446,21 @@ check("context: actual takeoff, and no guessed departure beside it", [l for l in
 check("context: no route, still the takeoff", F.context_lines(NO_ROUTE, None, {}, orphan), ["Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): near Boston at 12:41 AM, 1 hour 40 minutes ago."])
 check("ids that aren't real addresses are not asked about", [O._hex({"id": "~2a3b4c"}), O._hex({"id": "A32095"}), O._hex({})], [None, "a32095", None])
 
+# --- Only some planes in the sky
+HELIS = [{"type": "sky_filter", "filter": {"kind": "helicopters"}}]
+check("sky: only show helicopters in the sky", actions("Only show helicopters in the sky."), HELIS)
+check("sky: show me just the helicopters in the view", actions("show me just the helicopters in the view"), HELIS)
+check("sky: only helicopters", actions("only helicopters"), HELIS)
+check("sky: hide everything but", actions("hide everything but the helicopters"), HELIS)
+check("sky: BGSU", actions("just the BGSU planes in the sky"), [{"type": "sky_filter", "filter": {"fleet": "bgsu"}}])
+check("sky: from the list", actions("apply that filter to the sky"), [{"type": "sky_filter", "fromList": True}])
+check("sky: clear", actions("show everything in the sky again"), [{"type": "sky_filter"}])
+check("sky: clear, short", actions("clear the sky filter"), [{"type": "sky_filter"}])
+check("sky: the list still opens the list", actions("show me the helicopters"), [{"type": "show_list", "filter": {"kind": "helicopters"}}])
+check("sky: 'show everything' alone is still the list", actions("show me everything"), [{"type": "clear_filter"}, {"type": "show_list"}])
+check("sky: something harder goes to Aivana", rules.quick("only show Southwest above thirty thousand in the sky", CTX), None)
+check("sky actions pass validation", tools.validate_actions([{"type": "sky_filter", "filter": {"kind": "jets"}}, {"type": "sky_filter", "fromList": True}, {"type": "sky_filter"}]),
+      [{"type": "sky_filter", "filter": {"kind": "jets"}}, {"type": "sky_filter", "fromList": True}, {"type": "sky_filter"}])
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

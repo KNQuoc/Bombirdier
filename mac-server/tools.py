@@ -48,6 +48,7 @@ ACTIONS: dict[str, list[str]] = {
     "count": ["filter"],  # "how many...?" / "any...?": the phone answers with the number
     "radar_range": ["nm"],  # 0 = back to automatic
     "set_runway": ["runway"],
+    "sky_filter": [],  # optional: filter (only matching planes are shown in the sky), or fromList; neither = show everything again
     "ar_range": ["km"],  # how far out planes get icons on the compass bar and brackets in the sky; 0 = the default
     "connect_feed": ["feed"],  # start listening to a radio feed (audio + transcript); feed = its id
     "disconnect_feed": [],
@@ -69,6 +70,7 @@ ACTION_SCHEMA = {
         "n": {"type": "integer", "minimum": 1, "maximum": 8},
         "nm": {"type": "number", "minimum": 0, "maximum": 250},
         "km": {"type": "number", "minimum": 0, "maximum": 200},
+        "fromList": {"type": "boolean", "description": "sky_filter: use the plane list's current filter"},
         "runway": {"type": "string", "enum": RUNWAYS},
         "feed": {"type": "string", "maxLength": 24, "description": "A radio feed id from the context"},
         "state": {"type": "string", "enum": ["on", "off", "up", "down", "show", "hide"]},
@@ -86,7 +88,7 @@ REPLY_SCHEMA = {
 }
 
 # Which optional fields each type may also carry.
-_OPTIONAL = {"show_list": ["filter"], "sort": ["order"]}
+_OPTIONAL = {"show_list": ["filter"], "sort": ["order"], "sky_filter": ["filter", "fromList"]}
 
 
 def validate_actions(raw) -> list[dict]:
@@ -130,6 +132,7 @@ def describe_for_prompt() -> str:
 - count {filter}: for "how many ...?" or "any ...?" questions about traffic. The app counts and says the number.
 - radar_range {nm}: zoom the radar to that many nautical miles; 0 = automatic
 - set_runway {runway: 10|28|18|36|auto}: set the runway in use at Wood County by hand, or "auto" to let the app work it out from the traffic again
+- sky_filter {filter?, fromList?}: show only matching planes on the compass bar and in the sky ("only show helicopters in the sky", "just Southwest above thirty thousand in the sky"). fromList true = use the list's current filter. With neither, everything is shown again. This does not open the list
 - ar_range {km}: how far out planes are shown on the compass bar and in the sky, in kilometers, 5 to 200; 0 = back to the default of 50. This is not the radar zoom and not a list filter
 - connect_feed {feed}: start playing a radio feed and showing its transcript. `feed` is a feed id from the "Radio" lines of the context, and only one that is live
 - disconnect_feed: stop listening to the radio
