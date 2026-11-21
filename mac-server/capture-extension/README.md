@@ -36,4 +36,4 @@ If the server runs on another port, change `8787` in `manifest.json` and `lib.js
 
 ## Status
 
-Checked: the extension loads in Chrome 149, it reaches the real capture page and gets its feed list back (including after an extension reload, when Chrome has cut the link), its background script runs, it recognizes player tabs, the popup renders its list, and Chrome hands it a tab's audio id; the capture page's side (taking audio from the extension, level, stop) with a stand-in audio stream. **Not yet checked: the whole thing together in a real Chrome**, including whether players opened in the background start playing by themselves.
+Works in Chrome (2026-11-21): five player tabs captured at once, no sharing bars, audio arriving at the server at the same levels as with screen-sharing. Not yet seen: a call transcribed through it (the frequencies were silent at the time), a long run, and whether players opened in the background by "Open all feeds" start playing by themselves.
