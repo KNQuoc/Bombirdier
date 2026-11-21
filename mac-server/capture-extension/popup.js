@@ -1,22 +1,23 @@
-// The little window you get from the toolbar icon. Open it on a tab that is playing a radio feed
-// and press "Capture this tab": the tab's sound is handed to the Bombirdier capture page
-// (http://localhost:8787/capture), which sends it to the server on this Mac. Captured this way,
-// Chrome shows no "Sharing ... to this tab" bars.
+// The little window from the toolbar button. It opens every feed's player tab with one button,
+// shows what is being captured (level meter, Stop), and takes you to the tabs that still need
+// capturing. On a player tab itself the button doesn't open this at all: one click captures.
 //
-// Clicking the icon is what lets the extension touch that tab's audio (Chrome's rule), so each tab
-// needs its own click, once. The capture page has to stay open: this opens it if it isn't.
-
-const CAPTURE_PAGE = 'http://localhost:8787/capture';
+// The audio goes to the Bombirdier capture page (http://localhost:8787/capture), which has to be
+// open, and from there to the server on this Mac. Captured this way, Chrome shows no sharing bars.
 
 const $tab = document.getElementById('tab');
 const $here = document.getElementById('here');
 const $msg = document.getElementById('msg');
 const $list = document.getElementById('list');
+const $openAll = document.getElementById('open-all');
+const $hint = document.getElementById('hint');
 
 let tab = null; // the tab the popup was opened on
 let page = null; // the capture page's tab
 let feeds = [];
 let captures = [];
+let playerTabs = []; // open tabs of the feeds' site
+let shortcut = '';
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -31,99 +32,96 @@ function say(text, isError) {
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** Asks the capture page something. null = it isn't there, or didn't answer. */
-async function ask(message) {
-  if (!page) return null;
-  try {
-    return (await chrome.tabs.sendMessage(page.id, message)) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** The capture page's tab, opened in the background (and pinned, so it's hard to close by accident) if there is none. */
-async function capturePage(openIfMissing) {
-  const found = await chrome.tabs.query({ url: `${CAPTURE_PAGE}*` });
-  if (found.length) return found[0];
-  if (!openIfMissing) return null;
-  const made = await chrome.tabs.create({ url: CAPTURE_PAGE, active: false, pinned: true });
-  // Give it a moment to load and to start answering.
-  for (let i = 0; i < 40; i++) {
-    await wait(250);
-    try {
-      if (await chrome.tabs.sendMessage(made.id, { type: 'status' })) return made;
-    } catch {
-      // not ready yet
-    }
-  }
-  return made;
-}
+const tabOf = (feed) => playerTabs.find((t) => feedForTab(t, [feed])) ?? null;
+const captureOf = (feed) => captures.find((c) => c.feedId === feed.id) ?? null;
 
 async function refresh() {
-  const state = await ask({ type: 'status' });
+  const state = await askPage(page, { type: 'status' });
   if (state) {
     feeds = Array.isArray(state.feeds) ? state.feeds : [];
     captures = Array.isArray(state.captures) ? state.captures : [];
-    if (state.problem) say(state.problem, true);
   }
+  playerTabs = await chrome.tabs.query({ url: 'https://www.liveatc.net/*' });
   render();
-}
-
-/** The feed a tab is most likely playing: the one whose name on its own site is in the tab's title. */
-function guessFeed() {
-  const title = (tab?.title || '').toLowerCase();
-  return feeds.find((f) => f.listenTo && title.includes(String(f.listenTo).toLowerCase())) ?? null;
 }
 
 function renderHere() {
   $here.replaceChildren();
-  if (tab && page && tab.id === page.id) {
-    $here.append(el('div', 'note', 'This is the capture page itself. Open this window on the tab that is playing a feed.'));
-    return;
-  }
+  if (tab && page && tab.id === page.id) return;
   const mine = captures.find((c) => c.tabId === tab?.id);
   if (mine) {
     $here.append(el('div', '', `This tab is being captured as ${mine.feedName}.`));
     return;
   }
-  if (!feeds.length) return;
+  // A tab that plays something but isn't one of the known player pages: pick the feed by hand.
+  if (!feeds.length || !tab || tab.audible !== true) return;
   const select = el('select');
-  const guess = guessFeed();
+  const guess = feedForTab(tab, feeds);
   for (const f of feeds) {
-    const taken = captures.some((c) => c.feedId === f.id);
-    const option = el('option', '', `${f.name}${taken ? ' (already captured)' : ''}`);
+    const option = el('option', '', `${f.name}${captureOf(f) ? ' (already captured)' : ''}`);
     option.value = f.id;
     if (guess && guess.id === f.id) option.selected = true;
     select.append(option);
   }
   const button = el('button', 'go', 'Capture this tab');
-  button.addEventListener('click', () => capture(select.value, button));
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    const feed = feeds.find((f) => f.id === select.value);
+    try {
+      await captureTab(tab, feed, page);
+      say(`Capturing ${feed.name}.`);
+    } catch (e) {
+      say(`Could not capture this tab: ${e?.message ?? e}`, true);
+    }
+    refresh();
+  });
   $here.append(select, button);
-  if (!guess) $here.append(el('div', 'note', 'I could not tell from the tab’s title which feed this is: pick it above.'));
 }
 
 function renderList() {
   $list.replaceChildren();
-  if (!captures.length) {
-    $list.append(el('div', 'empty', 'Nothing yet.'));
+  if (!feeds.length) {
+    $list.append(el('div', 'empty', 'No feeds yet.'));
     return;
   }
-  for (const c of captures) {
-    const row = el('div', 'row' + (c.failing ? ' bad' : ''));
-    const name = el('div', 'name' + (c.tabId === tab?.id ? ' here' : ''), c.feedName);
-    name.title = c.failing ? 'Not reaching the server' : c.quietS >= 20 ? `Silent for ${c.quietS} s` : 'Sound is coming through';
-    const meter = el('div', 'meter');
-    const bar = el('i');
-    // Speech on a radio feed peaks well under full scale, so stretch it.
-    bar.style.width = c.failing ? '100%' : `${Math.min(100, Math.round(Math.sqrt(c.level || 0) * 130))}%`;
-    meter.append(bar);
-    const stop = el('button', '', 'Stop');
-    stop.addEventListener('click', async () => {
-      await ask({ type: 'stop', feedId: c.feedId });
-      refresh();
-    });
-    row.append(name, meter, stop);
+  for (const feed of feeds) {
+    const c = captureOf(feed);
+    const open = tabOf(feed);
+    const row = el('div', 'row' + (c?.failing ? ' bad' : ''));
+    const name = el('div', 'name' + (c && c.tabId === tab?.id ? ' here' : ''), feed.name);
+    row.append(name);
+    if (c) {
+      name.title = c.failing ? 'Not reaching the server' : c.quietS >= 20 ? `Silent for ${c.quietS} s` : 'Sound is coming through';
+      const meter = el('div', 'meter');
+      const bar = el('i');
+      // Speech on a radio feed peaks well under full scale, so stretch it.
+      bar.style.width = c.failing ? '100%' : `${Math.min(100, Math.round(Math.sqrt(c.level || 0) * 130))}%`;
+      meter.append(bar);
+      const stop = el('button', '', 'Stop');
+      stop.addEventListener('click', async () => {
+        await askPage(page, { type: 'stop', feedId: feed.id });
+        if (c.tabId != null) chrome.action.setBadgeText({ tabId: c.tabId, text: '' }).catch(() => {});
+        refresh();
+      });
+      row.append(meter, stop);
+    } else if (open) {
+      row.append(el('div', 'state', 'open, not captured'));
+      const go = el('button', '', 'Go to tab');
+      go.title = 'Switches to its tab. Click this toolbar button there once to capture it.';
+      go.addEventListener('click', () => chrome.tabs.update(open.id, { active: true }));
+      row.append(go);
+    } else if (feed.player) {
+      row.append(el('div', 'state', 'not open'));
+      const openIt = el('button', '', 'Open');
+      openIt.addEventListener('click', async () => {
+        await chrome.tabs.create({ url: feed.player, active: false });
+        await wait(600);
+        refresh();
+      });
+      row.append(openIt);
+    } else {
+      row.append(el('div', 'state', 'no player page set'));
+    }
     $list.append(row);
   }
 }
@@ -131,35 +129,50 @@ function renderList() {
 function render() {
   renderHere();
   renderList();
+  const closed = feeds.filter((f) => f.player && !captureOf(f) && !tabOf(f));
+  const waiting = feeds.filter((f) => !captureOf(f) && tabOf(f));
+  $openAll.hidden = !closed.length;
+  $openAll.textContent = closed.length === feeds.length ? 'Open all feeds' : `Open the other ${closed.length}`;
+  const key = shortcut ? ` or press ${shortcut}` : '';
+  $hint.textContent = waiting.length
+    ? `${waiting.length} open tab${waiting.length === 1 ? '' : 's'} not captured yet. Go to each and click this toolbar button once${key}: on a player tab that captures it straight away. Chrome only lets an extension capture a tab you have clicked it on, so it can't be done for all of them at once.`
+    : '';
 }
 
-async function capture(feedId, button) {
-  const feed = feeds.find((f) => f.id === feedId);
-  if (!feed || !tab || !page) return;
-  button.disabled = true;
-  say('Starting…');
-  try {
-    // Chrome hands out the tab's audio as an id that only the capture page's tab may redeem.
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id, consumerTabId: page.id });
-    const started = await ask({ type: 'start', feedId: feed.id, streamId, tabId: tab.id });
-    if (!started?.ok) throw new Error(started?.error || 'the capture page did not answer (reload it and try again)');
-    say(`Capturing ${feed.name}. You can close this window; leave this tab and the capture page open.`);
-  } catch (e) {
-    say(`Could not capture this tab: ${e?.message ?? e}`, true);
-  }
-  await refresh();
+async function openAll() {
+  $openAll.disabled = true;
+  const closed = feeds.filter((f) => f.player && !captureOf(f) && !tabOf(f));
+  for (const feed of closed) await chrome.tabs.create({ url: feed.player, active: false });
+  await wait(800);
+  $openAll.disabled = false;
+  say(`Opened ${closed.length} tab${closed.length === 1 ? '' : 's'}. Check each player says "playing".`);
+  refresh();
 }
 
 async function init() {
   [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   $tab.textContent = tab?.title ? `This tab: ${tab.title}` : '';
-  page = await capturePage(true);
-  const state = await ask({ type: 'status' });
-  if (!state) {
-    say('The capture page is not answering. Open http://localhost:8787/capture in a tab, or reload it if it is already open (it has to be loaded after this extension was installed), then click this button again. If it will not load, start the server with mac-server/run.sh.', true);
+  $openAll.addEventListener('click', openAll);
+  try {
+    const commands = await chrome.commands.getAll();
+    shortcut = commands.find((c) => c.name === '_execute_action')?.shortcut || '';
+  } catch {
+    shortcut = '';
   }
+  // Something the background script wanted said (a capture that failed without a popup to say it in).
+  const { problem } = await chrome.storage.session.get('problem');
+  if (problem && Date.now() - problem.at < 60_000) say(problem.text, true);
+  await chrome.storage.session.remove('problem');
+
+  page = await findCapturePage();
+  if (!page) {
+    // Open it in the background, pinned so it's hard to close by accident, and wait for it to answer.
+    page = await chrome.tabs.create({ url: CAPTURE_PAGE, active: false, pinned: true });
+    for (let i = 0; i < 40 && !(await askPage(page, { type: 'status' })); i++) await wait(250);
+  }
+  if (!(await askPage(page, { type: 'status' }))) say(NO_PAGE, true);
   await refresh();
-  setInterval(refresh, 500);
+  setInterval(refresh, 700);
 }
 
 init();

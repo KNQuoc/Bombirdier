@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Bombirdier radio capture",
-  "version": "0.2.0",
-  "description": "Hands the sound of a tab playing an air traffic control feed to the Bombirdier capture page on this Mac, without Chrome's sharing bars.",
-  "minimum_chrome_version": "116",
-  "permissions": ["tabCapture", "activeTab"],
-  "host_permissions": ["http://localhost:8787/*"],
+  "version": "0.3.0",
+  "description": "Opens your radio feeds' player tabs and hands their sound to the Bombirdier capture page on this Mac, without Chrome's sharing bars.",
+  "minimum_chrome_version": "127",
+  "permissions": ["tabCapture", "activeTab", "storage"],
+  "host_permissions": ["http://localhost:8787/*", "https://www.liveatc.net/*"],
+  "background": { "service_worker": "background.js" },
   "content_scripts": [{ "matches": ["http://localhost:8787/capture*"], "js": ["relay.js"], "run_at": "document_idle" }],
-  "action": { "default_title": "Bombirdier radio capture", "default_popup": "popup.html" }
+  "action": { "default_title": "Bombirdier radio capture", "default_popup": "popup.html" },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+C" }, "description": "Capture the tab you are on" }
+  }
 }

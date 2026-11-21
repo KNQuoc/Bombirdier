@@ -28,6 +28,9 @@
   .meter i { display: block; height: 100%; width: 0; background: var(--ok); }
   .row.bad .meter i { background: var(--bad); }
   .note { color: var(--soft); font-size: 12px; }
+  .state { flex: 0 0 auto; color: var(--soft); font-size: 12px; }
+  #open-all { margin-top: 10px; }
+  #hint { margin-top: 8px; }
   .empty { color: var(--soft); }
 </style>
 </head>
@@ -36,8 +39,11 @@
   <div class="tab" id="tab"></div>
   <div id="here"></div>
   <div class="msg" id="msg"></div>
-  <h2>Capturing now</h2>
+  <h2>Feeds</h2>
   <div id="list"></div>
+  <button class="go" id="open-all" hidden>Open all feeds</button>
+  <div class="note" id="hint"></div>
+  <script src="lib.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

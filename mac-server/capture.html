@@ -307,7 +307,7 @@ window.addEventListener('message', async (e) => {
     const now = Date.now();
     return reply({
       problem: $problem.hidden ? '' : $problem.textContent,
-      feeds: [...cards.values()].map((c) => ({ id: c.feed.id, name: c.feed.name, listenTo: c.feed.listenTo || null })),
+      feeds: [...cards.values()].map((c) => ({ id: c.feed.id, name: c.feed.name, listenTo: c.feed.listenTo || null, player: safeLink(c.feed.player) })),
       captures: [...cards.values()]
         .filter((c) => c.capture)
         .map((c) => ({ feedId: c.feed.id, feedName: c.feed.name, tabId: c.capture.tabId, level: c.capture.level, failing: c.capture.failing, quietS: Math.round((now - c.capture.quietSince) / 1000) })),

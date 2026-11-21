@@ -193,6 +193,9 @@ class Feed:
             # Where to open the feed's own player, and what it is called there (tab feeds).
             "page": self.cfg.get("page"),
             "listenTo": self.cfg.get("listenTo"),
+            # The page of the feed's own player (where its site's "listen" link leads): a bookmark,
+            # so the capture extension can open every feed's tab in one go.
+            "player": self.cfg.get("player"),
             "configured": self.configured,
             "status": self.current_status(),
             "lastCallAt": self.last_call_at,
