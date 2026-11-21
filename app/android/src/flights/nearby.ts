@@ -10,8 +10,11 @@ import type { RawAircraft } from './normalize';
 
 /** AR radius used when the setting is blank. (flight-service defaults to 15 km.) */
 export const DEFAULT_RADIUS_KM = 50;
-/** The AR radius setting can't go above this: beyond it planes are specks and the view gets crowded. */
-export const MAX_AR_RADIUS_KM = 100;
+/**
+ * The AR radius setting can't go above this. Far-out planes are specks low on the horizon (an airliner
+ * at cruise 200 km away is about 2° up), and a busy afternoon puts hundreds of them in the view.
+ */
+export const MAX_AR_RADIUS_KM = 200;
 /** The list's reach: adsb.lol's maximum for one radius query. */
 export const WIDE_RADIUS_NM = 250;
 export const KM_PER_NM = 1.852;

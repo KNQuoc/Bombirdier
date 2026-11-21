@@ -2,7 +2,7 @@
 
 A summary of Aivana's developer docs at <https://developers.aivana.ai/docs>, read on 2026-11-20, written for building `mac-server/llm.py` (Phase 3). It is a summary, not a copy: check the source pages before relying on a detail, and re-read them if a request starts failing.
 
-Pages read: Quickstart, API Keys, Generate, Parameters, Structured Outputs, Responses & Usage, Errors & Retries, Rate Limits, Pricing & Billing. Not read yet: Streaming, Conversations, Web Search, Files & Documents, Intelligence Trace, SDKs, CLI, Security & Data Handling.
+Pages read: Quickstart, API Keys, Generate, Parameters, Structured Outputs, Responses & Usage, Errors & Retries, Rate Limits, Pricing & Billing. Web Search was read and tested on 2026-11-21 (see below). Not read yet: Streaming, Conversations, Files & Documents, Intelligence Trace, SDKs, CLI, Security & Data Handling.
 
 ## The short version
 
@@ -100,6 +100,22 @@ Retry only 429, 502, 504 and network failures, a few times, with backoff. For a 
 | `.env`: `AIVANA_API_KEY`, `AIVANA_BASE_URL`, `AIVANA_MODEL` | No model to choose; one fixed URL | `AIVANA_API_KEY`, plus optional `AIVANA_EFFORT` (default `low`) |
 | "If Aivana supports tool/function calling, use it. If not, strict JSON" | No tool calling; strict JSON Schema exists | `response_format` with a flat `{ answer, actions[] }` schema |
 | Answer in under ~3 s | Unknown. Aivana may consult several models per request; the docs' own example shows about 2 s for a trivial prompt, and strict responses are not streamed | Use `effort: low` and a small `max_tokens`, **measure with a real key**, and handle the instant commands (mute, next page, close list) with keyword rules on the phone as the plan already suggests |
+
+## Web search, tested (2026-11-21)
+
+`"web_search": true` makes a request search the web first ([docs](https://developers.aivana.ai/docs/web-search)). It works, and the Intelligence Trace confirms it (`fresh_data: enabled`, `sources_used: 1-4`). Measured with `effort: low`:
+
+| Asked | Took | What came back | Right? |
+|---|---|---|---|
+| American 2760, in the air over Ohio at the time | 8.4 s | Boston to Los Angeles, scheduled 6:45 PM to 10:30 PM, "has not yet departed" | Route right. Status wrong: it described that evening's flight, not the plane in the sky |
+| Southwest 1151, in the air at the time | 9.1 s | "Not scheduled to operate today" | Wrong |
+| Current weather at Toledo Express | 10.7 s | A METAR issued 00:52Z: 10 miles, clear, 7 °C | Six hours stale. The current report (06:52Z) was 5 miles in mist, 3 °C |
+| Rain or snow at Bowling Green in the next 12 hours | 6.2 s | No, 0% chance | Plausible, not checked |
+| The first question with search off | 5.1 s | "I cannot access live flight data" | Honest |
+
+A searched request cost about 0.006 credits against 0.0004 without (roughly 15 times: every token of the search is charged, about 2,500 input tokens each).
+
+**What this means for Bombirdier:** not a source for departure or arrival times of the plane you are looking at (it finds the route and a published schedule, then guesses the wrong day's flight), and worse than what is already built for weather (`flightinfo.py` gets the current METAR straight from aviationweather.gov in under a second). It is usable for look-it-up questions where a few seconds and an approximate answer are fine.
 
 ## Open questions to settle with a real key
 

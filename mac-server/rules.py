@@ -52,7 +52,7 @@ def _number(word: str) -> int | None:
 
 
 AR_RANGE_MIN_KM = 5
-AR_RANGE_MAX_KM = 100  # the app's own limit: the bar's data is asked for every few seconds
+AR_RANGE_MAX_KM = 200  # the app's own limit (MAX_AR_RADIUS_KM): the bar's data is asked for every few seconds
 
 
 def _amount(words: str) -> int | None:
@@ -64,13 +64,25 @@ def _amount(words: str) -> int | None:
     if not parts or any(p not in NUMBER_WORDS for p in parts):
         return None
     values = [NUMBER_WORDS[p] for p in parts]
-    if values == [1, 100] or values == [100]:
-        return 100
-    if len(values) == 1:
-        return values[0]
-    if len(values) == 2 and values[0] in (20, 30, 40, 50, 60, 70, 80, 90) and 1 <= values[1] <= 9:
-        return values[0] + values[1]
-    return None
+
+    def under_hundred(v: list[int]) -> int | None:
+        if len(v) == 1 and v[0] < 100:
+            return v[0]
+        if len(v) == 2 and v[0] in (20, 30, 40, 50, 60, 70, 80, 90) and 1 <= v[1] <= 9:
+            return v[0] + v[1]
+        return None
+
+    if 100 in values:
+        # "a hundred", "two hundred", "one hundred fifty", "a hundred and seventy five"
+        at = values.index(100)
+        hundreds = 1 if at == 0 else values[0] if at == 1 and 1 <= values[0] <= 9 else None
+        rest = 0 if at == len(values) - 1 else under_hundred(values[at + 1 :])
+        return None if hundreds is None or rest is None else hundreds * 100 + rest
+    # "one fifty", "one seventy five": how people say 150 and 175.
+    if len(values) >= 2 and values[0] == 1 and values[1] in (20, 30, 40, 50, 60, 70, 80, 90):
+        rest = under_hundred(values[1:])
+        return None if rest is None else 100 + rest
+    return under_hundred(values)
 
 
 def _reply(answer: str, *actions: dict) -> dict:

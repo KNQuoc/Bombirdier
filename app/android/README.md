@@ -6,7 +6,7 @@ Standalone APK (Capacitor). The web code is bundled into the app. It contacts ad
 
 - **Launch:** opens straight into the headset view (no splash or loading screen; Android 12+ only flashes the app icon briefly, which apps can't turn off). Android asks for location and camera the first time.
 - **Settings:** ⚙ (top-right corner, outside both eye images) or long-press anywhere in the view.
-  - AR radius (default 50 km, max 100): how far out planes get compass icons and sky brackets.
+  - AR radius (default 50 km, max 200; also set by voice: "set the range to 75 kilometers"): how far out planes get compass icons and sky brackets.
   - Wide traffic (On / Wi-Fi only / Off): the 250 nm data behind the list. Off or no Wi-Fi = the list shows the AR planes only.
   - Active runway at Wood County: Auto (from traffic, the default) or a runway to force.
   - Mac server: where the voice assistant's server is (default `http://localhost:8787`, which works over USB).

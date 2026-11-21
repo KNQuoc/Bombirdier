@@ -16,6 +16,9 @@ import { livePlanes } from './nearby';
  * That settles near the rate adsb.lol currently allows, including with several phones behind one IP.
  */
 const MIN_POLL_MS = 5000;
+/** Above this radius each answer is several times bigger, so the feed asks a little less often. */
+const BIG_RADIUS_KM = 100;
+const BIG_RADIUS_MIN_POLL_MS = 8000;
 const MAX_POLL_MS = 30_000;
 /** An answer slower than this means adsb.lol is throttling us: back off like on a 429. */
 const SLOW_ANSWER_MS = 3000;
@@ -114,7 +117,8 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
     computedAt = 0; // recompute on the next get()
     const throttled = problem != null || Date.now() - startedAt > SLOW_ANSWER_MS;
     lastThrottled = throttled;
-    interval = throttled ? Math.min(MAX_POLL_MS, interval * 1.5) : Math.max(MIN_POLL_MS, interval - 1000);
+    const fastest = (radiusKm ?? 0) > BIG_RADIUS_KM ? BIG_RADIUS_MIN_POLL_MS : MIN_POLL_MS;
+    interval = throttled ? Math.min(MAX_POLL_MS, interval * 1.5) : Math.max(fastest, interval - 1000);
     const age = Math.round((Date.now() - fetchedAt) / 1000);
     status =
       problem === 'rate-limited'
