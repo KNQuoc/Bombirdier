@@ -580,10 +580,34 @@ function planeRadio(p: Plane) {
   if (!facility) return null;
   const freq = guess?.facility.id === facility.id ? guess.freq : facility.freqs.length === 1 ? facility.freqs[0] : null;
   const start = heardFeed ?? firstChannel(facility);
+  // What was said in the calls that named it: "heard 3 min ago" on its own leaves you asking "heard what?".
+  const now = Date.now();
+  const calls = radio.callsFor(p.id, now);
+  const last = calls.at(-1);
+  const quote = last ? `“${last.event.text.length > CARD_QUOTE_CHARS ? `${last.event.text.slice(0, CARD_QUOTE_CHARS - 1).trimEnd()}…` : last.event.text}”` : null;
   return {
-    line: radioLine(guess, heard, !!start),
-    brief: { facility: facility.id, name: facility.name, freq, feedId: start?.id ?? null, channel: heardChannel, heardAgoS: heard?.agoS ?? null },
+    line: [radioLine(guess, heard, !!start), quote].filter(Boolean).join('\n'),
+    brief: {
+      facility: facility.id,
+      name: facility.name,
+      freq,
+      feedId: start?.id ?? null,
+      channel: heardChannel,
+      heardAgoS: heard?.agoS ?? null,
+      calls: calls.map((c) => ({ text: c.event.text.slice(0, 300), agoS: Math.round((now - c.at) / 1000), on: feedName(c.event.feedId) })),
+    },
   };
+}
+
+/** How much of a call fits on a card line. */
+const CARD_QUOTE_CHARS = 46;
+
+/** "Detroit Arrival East", "Toledo Approach": a feed as you would say it. */
+function feedName(feedId: string): string | null {
+  const feed = radio.feed(feedId);
+  const facility = facilityOfFeed(feed);
+  if (!feed) return null;
+  return facility ? (channels(facility).length > 1 ? `${shortName(facility)} ${feed.channel}` : facility.name) : feed.name;
 }
 
 /** The controller working a plane, and how that is known: a handoff heard, its callsign heard, or a guess (atc/control.ts). */

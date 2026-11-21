@@ -58,6 +58,10 @@ def _plane_line(p: dict) -> str:
     if radio.get("name"):
         heard = f", heard there {radio['heardAgoS']} s ago" if radio.get("heardAgoS") is not None else ", not heard on the radio"
         bits.append(f"probably talking to {radio['name']}{' ' + str(radio['freq']) if radio.get('freq') else ''}{heard}")
+    # What was actually said in the calls that named it (machine transcripts), oldest first.
+    calls = [c for c in (radio.get("calls") or []) if isinstance(c, dict) and c.get("text")][-3:]
+    if calls:
+        bits.append("radio calls naming it: " + "; ".join(f"[{c.get('agoS')} s ago{', ' + str(c['on']) if c.get('on') else ''}] \"{str(c['text'])[:200]}\"" for c in calls))
     return ", ".join(bits)
 
 

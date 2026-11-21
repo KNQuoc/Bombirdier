@@ -115,6 +115,7 @@ To try the pipeline without a live feed, point `FEEDS_FILE` at a list with a `"k
 | "What's the weather at Detroit Metro?", "will it rain in Toledo tonight?", "what's the forecast for Columbus?" | `forecast.py`, for the airport named (US and Canada) | 0.3 to 2 s (a weather lookup, cached) |
 | "Show me the airspace", "colour the planes by controller", "normal colours" | `rules.py`: planes coloured by who is working them | about 0.3 s |
 | "Close the legend", "close the window", "show the legend" | `rules.py`: the airspace legend box only, colours stay | about 0.3 s |
+| Looking at a plane that was heard: "what did they last say?", "what did they tell it?", "when?" | `radiotalk.py`, from the calls that named that plane | about 0.4 s |
 | Anything else ("only Southwest above thirty thousand", "how many seats does it have?", "why is it descending?") | Aivana | 3–6 s |
 
 Measured on this Mac with clean test audio (macOS `say`), 2026-11-20: Whisper about 0.3 s, Kokoro 0.1–0.6 s. A real voice through a phone microphone outdoors will transcribe less cleanly.

@@ -734,5 +734,28 @@ for text in ("Show the legend", "bring back the key", "show me the airspace wind
     check(f"legend on: {text}", actions(text), [{"type": "legend", "state": "show"}])
 check("legend action: valid", tools.validate_actions([{"type": "legend", "state": "hide"}]), [{"type": "legend", "state": "hide"}])
 
+# What was said to the plane being looked at: its card says "heard 3 min ago", so the next question is "heard what?".
+def heard_say(text, ctx):
+    r = rules.quick(text, ctx)
+    return None if r is None else r["answer"]
+
+
+DELTA = {**SOUTHWEST, "callsign": "DAL2751", "radio": {"name": "Detroit Metro", "heardAgoS": 185, "calls": [
+    {"text": "Delta 2751, reduce speed to two one zero.", "agoS": 260, "on": "Detroit Arrival East"},
+    {"text": "Delta 2751, descend and maintain 3,000.", "agoS": 185, "on": "Detroit Arrival East"},
+]}}
+LAST = "3 minutes ago on Detroit Arrival East: Delta 2751, descend and maintain 3,000."
+for text in ("What did they last say?", "What did they just say?", "what did they say to it", "What did they tell it?", "what was it told to do", "what did it say",
+             "What was the last call?", "what was its last instruction", "When did they last talk to it?", "when was it last heard", "When?", "how long ago was that", "heard what"):
+    check(f"plane's last call: {text}", heard_say(text, rctx(focus=DELTA)), LAST)
+check("plane's last call: opened from the list", heard_say("what did they tell that plane", rctx(focus=None, opened=DELTA)), LAST)
+check("plane's last call: listening, 'what did they just say' is the frequency", heard_say("What did they just say?", on(focus=DELTA, radioRecent=RECENT)), "20 seconds ago: November 337 Bravo Golf, radar contact.")
+check("plane's last call: listening, 'to it' is still the plane", heard_say("what did they say to it", on(focus=DELTA, radioRecent=RECENT)), LAST)
+check("plane's last call: not heard", heard_say("what did they tell it", rctx(focus=ARCHER)), "I haven't heard that one on the radio.")
+check("plane's last call: heard but the words are gone", heard_say("what did they tell it", rctx(focus={**ARCHER, "radio": {"name": "Toledo Approach", "heardAgoS": 500}})), "I heard it on the radio, but I no longer have what was said.")
+check("plane's last call: no plane", heard_say("what did they tell it", rctx(focus=None)), "Point at a plane first, and I'll tell you what was said to it.")
+check("'when' with no calls is not a radio question", rules.quick("when", rctx(focus=ARCHER)), None)
+check("Aivana is given the calls", "radio calls naming it: [260 s ago, Detroit Arrival East] \"Delta 2751, reduce speed to two one zero.\"" in context_text(rctx(focus=DELTA)), True)
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

@@ -31,6 +31,8 @@ const CALLS_KEPT = 8;
 const TRANSCRIPT_KEPT = 8;
 /** "Heard on Toledo Approach" stays true this long after the call. */
 const HEARD_FOR_MS = 10 * 60_000;
+/** Calls remembered per plane. */
+const CALLS_PER_PLANE = 3;
 
 export type HeardCall = {
   event: RadioEvent;
@@ -64,6 +66,8 @@ export function createRadio(deps: {
   const transcripts = new Map<string, HeardCall[]>();
   /** Plane id -> the feed it was last named on. */
   const heardOn = new Map<string, { feedId: string; at: number }>();
+  /** Plane id -> the last few calls that named it, oldest first: what "heard 3 min ago" was. */
+  const byPlane = new Map<string, HeardCall[]>();
   /** Plane id -> the last call that sent it to another controller ("contact Detroit Approach..."). */
   const handoffs = new Map<string, HeardCall>();
 
@@ -102,6 +106,14 @@ export function createRadio(deps: {
               while (log.length > TRANSCRIPT_KEPT) log.shift();
               transcripts.set(event.feedId, log);
               if (plane) heardOn.set(plane.id, { feedId: event.feedId, at: call.at });
+              if (plane) {
+                const said = byPlane.get(plane.id) ?? [];
+                said.push(call);
+                while (said.length > CALLS_PER_PLANE) said.shift();
+                byPlane.set(plane.id, said);
+                // Planes long gone would pile up over a day of listening.
+                if (byPlane.size > 600) for (const [id, list] of byPlane) if (call.at - list[list.length - 1].at > HEARD_FOR_MS) byPlane.delete(id);
+              }
               if (plane && event.handoff) handoffs.set(plane.id, call);
               // Away from the home frequency, a call about nobody we can see is just noise in the view.
               if (!plane && event.feedId !== homeId) continue;
@@ -173,6 +185,10 @@ export function createRadio(deps: {
     heardOn(planeId: string, now = Date.now()): { feedId: string; agoS: number; at: number } | null {
       const h = heardOn.get(planeId);
       return h && now - h.at <= HEARD_FOR_MS ? { feedId: h.feedId, agoS: Math.round((now - h.at) / 1000), at: h.at } : null;
+    },
+    /** The last few calls that named a plane, oldest first, while "heard on..." still holds. */
+    callsFor(planeId: string, now = Date.now()): HeardCall[] {
+      return (byPlane.get(planeId) ?? []).filter((c) => now - c.at <= HEARD_FOR_MS);
     },
     /** The call that last handed a plane to another controller, if recent. */
     handoff(planeId: string, now = Date.now()): HeardCall | null {

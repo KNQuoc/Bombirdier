@@ -313,9 +313,40 @@ def quick(t: str, ctx: dict) -> dict | None:
                 return _reply("You're not connected to a frequency. Point at a controller and say can I access.")
             return _reply(answer, *({"type": kind, "state": state} for kind, state in actions))
 
+    # --- What was said to the plane being looked at (its card says "heard 3 min ago": heard what?)
+    plane = ctx.get("focus") or ctx.get("opened") or {}
+    plane_calls = [c for c in ((plane.get("radio") or {}).get("calls") or []) if isinstance(c, dict) and c.get("text")]
+    _it = r"(?:it|him|her|them|that|this|(?:that|this|the) (?:plane|one|flight|aircraft|pilot|jet))"
+    _atc = r"(?:they|he|she|atc|the controller|the tower|tower|approach|center|departure)"
+    about_plane = re.fullmatch(
+        rf"what did {_atc} (?:just |last )?(?:say to|tell|told|ask|want from) {_it}(?: last| to do)?"
+        rf"|what (?:did|was) {_it} (?:just |last )?(?:say|told|told to do|asked to do)(?: last)?"
+        rf"|what (?:was|is) (?:the|its|their|his|her) last (?:call|instruction|transmission|clearance)(?: (?:for|to|from|about) {_it})?"
+        rf"|what was {_it} (?:just |last )?told(?: to do)?"
+        rf"|what (?:was|were) (?:the|its|their) last (?:instructions?|words)"
+        rf"|when (?:did|was) (?:{_atc}|{_it}|i|you) (?:last )?(?:hear|heard|talk|talking|say|speak|call|called)(?: (?:to|from) {_it})?(?: last| something)?"
+        rf"|when was the last call(?: (?:for|to|from) {_it})?|heard what|what did you hear(?: from {_it})?", t)
+    # Could be about the radio or about something else ("when?" after a flight question): only
+    # answered from the plane's calls when it has some.
+    asked_latest = re.fullmatch(
+        rf"what did {_atc} (?:just |last )?say(?: last)?|what was that(?: call| last call)?|what was the last call|repeat the last call|what did i miss"
+        r"|when|when was (?:that|it|this)(?: heard| said)?|how long ago(?: was (?:that|it))?", t)
+    # Listening to a frequency, "what did they just say?" is about that frequency. Otherwise, with a
+    # plane in view that was heard, it is about that plane.
+    if plane_calls and (about_plane or (asked_latest and not connected)):
+        last = plane_calls[-1]
+        where = f" on {last['on']}" if last.get("on") else ""
+        earlier = f" Before that, {ago(plane_calls[-2].get('agoS') or 0)}: {plane_calls[-2]['text']}" if len(plane_calls) > 1 and re.search(r"\bcalls\b|instructions|what did i miss", t) else ""
+        return _reply(f"{ago(last.get('agoS') or 0).capitalize()}{where}: {last['text']}{earlier}")
+    if about_plane:
+        if not plane:
+            return _reply("Point at a plane first, and I'll tell you what was said to it.")
+        heard = (plane.get("radio") or {}).get("heardAgoS")
+        return _reply("I heard it on the radio, but I no longer have what was said." if heard is not None else "I haven't heard that one on the radio.")
+
     # --- What was said
     recent = ctx.get("radioRecent") or []
-    if re.fullmatch(r"what did (?:they|he|she|atc|the controller|the tower|approach|center) (?:just )?say|what was that(?: call| last call)?|what was the last call|repeat the last call|what did i miss", t):
+    if re.fullmatch(rf"what did {_atc} (?:just |last )?say(?: last)?|what was that(?: call| last call)?|what was the last call|repeat the last call|what did i miss", t):
         if not recent:
             return _reply("Nothing has been said on the radio in the last few minutes." if connected else "I haven't heard anything on the radio in the last few minutes.")
         last = recent[-1]
