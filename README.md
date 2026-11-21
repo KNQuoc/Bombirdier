@@ -76,7 +76,7 @@ Plug the phone into the Mac: `run.sh` keeps the USB link to the server up, and t
 3. Ask **"when does it land?"** or **"where did it come from?"**.
 4. Say **"show me the helicopters"**, then **"sort by altitude"**, then **"close the list"**.
 5. Ask something open, such as **"how many seats does it have?"** (this one goes to Aivana and takes a few seconds).
-6. Ask **"what's the weather?"**.
+6. Ask **"what's the weather?"**, or **"what's the weather at Detroit Metro?"**.
 7. Say **"what can I say?"** for more.
 
 On the phone, talking starts with a head tilt held for about a second, or two fingers on the screen when the phone is in your hand.

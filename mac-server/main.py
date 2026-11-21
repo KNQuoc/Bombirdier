@@ -287,7 +287,9 @@ async def _ask_aivana(question: str, ctx: dict) -> dict:
     plane = flightinfo.subject(ctx)
     prog = flightinfo.progress(plane) if plane else None
     wx, took = await asyncio.gather(flightinfo.weather(plane, prog), _takeoff(plane, prog)) if plane else ({}, None)
-    flight = "\n".join(flightinfo.context_lines(plane, prog, wx, took) + await forecast.context_lines(ctx))
+    # "Is it windy in Detroit?": the weather at an airport named in the question, however it was put.
+    spot = forecast.mentioned(rules.normalize(question), ctx)
+    flight = "\n".join(flightinfo.context_lines(plane, prog, wx, took) + await forecast.context_lines(ctx, spot=spot))
     messages.append({"role": "user", "content": f"{context_text(ctx)}\n{flight}\n\nThe user said: {question}"})
     result = await llm.complete(messages, system=SYSTEM, schema=REPLY_SCHEMA)
     structured = result.get("structured") or {}
@@ -346,6 +348,10 @@ async def ask(req: AskRequest) -> dict:
         # with no route, where at least knowing where it came from is something.
         took = await _takeoff(plane, prog) if plane and (kind == "departed" or (kind in ("route", "origin") and not prog)) else None
         reply = {"answer": flightinfo.answer(kind, plane, prog, wx, took), "actions": []}
+    # The same weather questions about a named airport ("the weather at Detroit Metro", "will it rain in Toledo tonight").
+    placed = None if reply or kind else forecast.wants_at(rules.normalize(transcript), req.context)
+    if placed:
+        reply = {"answer": await forecast.answer(placed[0], placed[1], req.context, spot=placed[2]), "actions": []}
     if reply is None:
         llm_started = time.time()
         try:

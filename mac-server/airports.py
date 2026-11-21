@@ -10,6 +10,7 @@ public-use, "P" private strip, "H" heliport. The phone has the same rules over a
 """
 import json
 import os
+import re
 from datetime import datetime, timedelta
 
 from flightinfo import distance_nm
@@ -39,8 +40,9 @@ def _load() -> list[list]:
 
 def use(rows: list[list]) -> None:
     """Replace the list (tests)."""
-    global _rows
+    global _rows, _words
     _rows = rows
+    _words = None
 
 
 def nearest(lat: float, lon: float, max_nm: float = 5.0, helicopter: bool = False) -> dict | None:
@@ -69,6 +71,53 @@ def nearest(lat: float, lon: float, max_nm: float = 5.0, helicopter: bool = Fals
     if not pick:
         return None
     return {**dict(zip(_KEYS, pick[1])), "distanceNm": pick[0]}
+
+
+# Names people say that the list would not settle on its own: a city with several big airports, a nickname.
+_SAID = {"chicago": "ORD", "ohare": "ORD", "midway": "MDW", "new york": "JFK", "washington": "DCA", "dallas": "DFW", "houston": "IAH", "metro": "DTW"}
+# An airfield this close to the user is probably the one meant: "Marion" near Bowling Green is Marion, Ohio.
+LOCAL_NM = 150
+_KIND_RANK = {"L": 4, "M": 2, "S": 1}  # a big airport far away beats a small one nearby with the same name (Toronto)
+_words: list[tuple[list, list[str], str]] | None = None
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower().replace("'", "").replace("’", ""))).strip()
+
+
+def find(name: str, near: tuple[float, float] | None = None) -> dict | None:
+    """The public airport someone means by a spoken name: "detroit metro", "toledo", "findlay", "dtw".
+
+    Every word said has to be a word (or the start of one) in the airport's name or town. Among
+    those, bigger airports and ones within LOCAL_NM of `near` come first, then the nearest. None
+    when nothing fits: better no answer than the weather for the wrong place.
+    """
+    global _words
+    said = re.sub(r"^the ", "", _plain(name))
+    said = re.sub(r"( international)? (airport|airfield)$| area$", "", said).strip()
+    if not said or len(said) < 3:
+        return None
+    if _words is None:
+        _words = [(row, _plain(f"{row[1]} {row[2]}").split(), _plain(row[2])) for row in _load() if row[6] in _KIND_RANK]
+    by_code = {row[0]: row for row, _, _ in _words}
+    tokens = said.split()
+    pick = by_code.get(_SAID.get(said, ""))
+    if not pick:
+        best = None
+        for row, words, city in _words:
+            exact = all(t in words for t in tokens)
+            # "Metro" for "Metropolitan" counts, but only next to a word that is really there ("detroit metro").
+            if not exact and not (any(t in words for t in tokens) and all(any(w == t or (len(t) >= 4 and w.startswith(t)) for w in words) for t in tokens)):
+                continue
+            d = distance_nm(near[0], near[1], row[3], row[4]) if near else 0.0
+            score = _KIND_RANK[row[6]] + (2 if near and d <= LOCAL_NM else 0) + (0.5 if city == said else 0) + (0.25 if exact else 0)
+            if best is None or (score, -d) > (best[0], -best[1]):
+                best = (score, d, row)
+        pick = best[2] if best else None
+    if not pick and len(tokens) == 1 and 3 <= len(said) <= 4:
+        # A code: "dtw", "kdtw", "1g0".
+        pick = by_code.get(said.upper()) or (by_code.get(said[1:].upper()) if len(said) == 4 and said[0] == "k" else None)
+    return dict(zip(_KEYS, pick)) if pick else None
 
 
 def spoken(airport: dict) -> str:

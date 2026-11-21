@@ -652,5 +652,65 @@ for text in ("Help.", "What can I say?", "what can you do", "What can I ask?", "
     check(f"help: {text}", rules.quick(text, CTX), {"answer": rules.HELP, "actions": []})
 check("help: a real question is not help", rules.quick("can you help me find the Delta", CTX), None)
 
+# --- Weather at a named airport ("the weather at Detroit Metro"): which airport is meant, and what is asked.
+import airports as A  # noqa: E402
+
+A.use([
+    ["DTW", "Detroit Metropolitan Wayne County Airport", "Detroit", 42.2138, -83.3538, 645, "L"], ["DET", "Coleman A. Young Municipal Airport", "Detroit", 42.4092, -83.0099, 626, "M"],
+    ["TOL", "Eugene F. Kranz Toledo Express Airport", "Toledo", 41.5868, -83.8078, 683, "M"], ["TDZ", "Toledo Executive Airport", "Toledo", 41.5649, -83.4823, 623, "S"],
+    ["ORD", "Chicago O'Hare International Airport", "Chicago", 41.9786, -87.9048, 680, "L"], ["MDW", "Chicago Midway International Airport", "Chicago", 41.786, -87.7524, 620, "L"],
+    ["1G0", "Wood County Airport", "Bowling Green", 41.391, -83.6301, 673, "S"], ["BWG", "Bowling Green Warren County Regional Airport", "Bowling Green", 36.9645, -86.4197, 547, "M"],
+    ["YYZ", "Toronto Pearson International Airport", "Toronto", 43.6759, -79.6294, 569, "L"], ["1G8", "Eddie Dew Memorial Airpark", "Toronto", 40.4777, -80.6281, 1160, "S"],
+    ["CPN5", "Listowel Airport", "Listowel", 43.74, -80.99, 1230, "S"], ["OH99", "Detroit Farm Strip", "Detroit", 42.0, -83.0, 600, "P"],
+])
+BG = (41.39, -83.63)
+for said, code in [
+    ("Detroit Metro", "DTW"), ("detroit", "DTW"), ("metro airport", "DTW"), ("Toledo", "TOL"), ("toledo executive", "TDZ"), ("the Toledo Express airport", "TOL"),
+    ("Chicago", "ORD"), ("midway", "MDW"), ("O'Hare", "ORD"), ("Bowling Green", "1G0"), ("Toronto", "YYZ"), ("dtw", "DTW"), ("KTOL", "TOL"),
+    ("the list", None), ("thirty thousand", None), ("Narnia", None), ("to", None),
+]:
+    got = A.find(said, BG)
+    check(f"airport named: {said}", got["code"] if got else None, code)
+
+for text, want in [
+    ("Tell me the weather condition at Detroit Metro right now.", ("here", "DTW")), ("What's the weather in Toledo?", ("here", "TOL")),
+    ("What's the wind at Toledo Executive?", ("here", "TDZ")), ("What's the forecast for Chicago tonight?", ("forecast", "ORD")),
+    ("what's the forecast for tonight in Detroit", ("forecast", "DTW")), ("Will it rain in Detroit this afternoon?", ("precip", "DTW")),
+    ("Is it going to stay VFR at Toledo?", ("flying", "TOL")), ("current conditions at dtw", ("here", "DTW")),
+    ("What's the weather at its destination?", None), ("What's the weather in Narnia?", None), ("show me the planes in the list", None), ("What's the weather?", None),
+]:
+    got = W.wants_at(rules.normalize(text), {})
+    check(f"weather at a place: {text}", (got[0], got[2]["code"]) if got else None, want)
+check("weather at a place: the question keeps its time", W.wants_at(rules.normalize("will it rain in Detroit this afternoon"), {})[1], "will it rain this afternoon")
+check("weather lead-in: tell me the weather", W.wants(rules.normalize("Can you tell me the weather?"))[0], "here")
+check("weather lead-in: weather conditions", W.wants(rules.normalize("What are the weather conditions right now?"))[0], "here")
+check("mentioned: any wording", (W.mentioned(rules.normalize("Is it windy in Detroit?"), {}) or {}).get("code"), "DTW")
+check("mentioned: not without a weather word", W.mentioned(rules.normalize("show me the planes in Detroit"), {}), None)
+
+
+async def _weather_at_a_place():
+    DTW = A.find("detroit metro", BG)
+    FAR = A.find("bowling green", BG)
+
+    async def fake_nearest(kind, lat, lon):
+        at_dtw = abs(lat - 42.2138) < 0.01
+        return {"icaoId": "KDTW" if at_dtw else "KTDZ", "name": "Detroit/Wayne Co Arpt, MI, US" if at_dtw else "Toledo/Metcalf Fld", "lat": lat, "lon": lon,
+                "distanceNm": 0.4 if at_dtw else 12.2, "wdir": 170, "wspd": 6, "visib": "10+", "clouds": [{"cover": "CLR"}], "temp": 19, "fltCat": "VFR"}
+
+    W.nearest = fake_nearest
+    check("answer: weather at the airport asked about", await W.answer("here", "whats the weather", {}, now=NOW, spot=DTW),
+          "Detroit Metropolitan Wayne County Airport right now: wind from the south at 6 knots, visibility more than 10 miles, clear skies, 19 degrees Celsius. Good flying weather.")
+    check("answer: the station is somewhere else", (await W.answer("here", "whats the weather", {}, now=NOW, spot=FAR)).startswith(
+        "The nearest weather station to Wood County Airport in Bowling Green is Toledo, 12 miles from it. Toledo right now: wind from the south"), True)
+
+    async def none(kind, lat, lon):
+        return None
+
+    W.nearest = none
+    check("answer: no report for that place", await W.answer("here", "whats the weather", {}, now=NOW, spot=DTW), "I couldn't get a weather report for Detroit Metropolitan Wayne County Airport just now.")
+
+
+asyncio.run(_weather_at_a_place())
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

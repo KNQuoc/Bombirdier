@@ -17,6 +17,7 @@ import re
 import time
 from datetime import datetime, timedelta
 
+import airports
 import flightinfo
 from flightinfo import COVER, WEATHER_CODES, describe_metar, distance_nm, place, spoken_clock, station_name
 
@@ -312,7 +313,7 @@ def at_time(taf: dict, when: float) -> dict | None:
 _NOW = r"(?: here| outside| right now| now| today| currently| at the (?:airport|field)| at wood county| in bowling green| around here| locally)*"
 _WHEN = r"(?: later| today| tonight| this (?:morning|afternoon|evening)| tomorrow(?: morning| afternoon| evening| night)?| in the next (?:few|couple of|\w+) hours?| soon| here| outside| at the (?:airport|field)| for (?:today|tonight|tomorrow|this (?:morning|afternoon|evening)|the next (?:few|\w+) hours?))*"
 _Q = r"(?:whats|what is|hows|how is|how are|what are)"
-_HERE = rf"{_Q} the weather(?: like| doing)?{_NOW}|{_Q} the (?:wind|winds|ceiling|ceilings|visibility|conditions|clouds|sky|temperature)(?: like| doing)?{_NOW}|(?:the )?(?:current )?weather(?: report| check)?{_NOW}|current conditions"
+_HERE = rf"{_Q} the weather(?: conditions?)?(?: like| doing)?{_NOW}|{_Q} the (?:wind|winds|ceiling|ceilings|visibility|conditions|clouds|sky|temperature)(?: like| doing)?{_NOW}|(?:the )?(?:current )?weather(?: conditions?| report| check)?{_NOW}|(?:the )?current conditions{_NOW}"
 _FORECAST = (
     rf"{_Q} the (?:weather )?forecast(?: like| looking)?{_WHEN}"
     rf"|(?:{_Q}|what will|how will|whats it|what is it) (?:the weather )?(?:going to be|gonna be|be|look|looking|supposed to be|going to do|gonna do)(?: like)?{_WHEN}"
@@ -337,11 +338,57 @@ _ARRIVAL = (
 )
 
 
+# "Tell me the weather", "can you give me the forecast": the question is what follows.
+_LEAD = r"^(?:please )?(?:(?:can|could|would) you )?(?:tell me|give me|show me|get me|check|read me|i want to know|i wanna know|do you know|let me know|what about|how about)(?: about)? "
+# A named place: "... at Detroit Metro right now", "... in Toledo tonight".
+_AT = re.compile(r" (?:at|in|for|over|around|near) ")
+_AFTER_PLACE = r"((?: right now| now| today| currently| tonight| later| this (?:morning|afternoon|evening)| tomorrow(?: morning| afternoon| evening| night)?| in the next \w+ hours?)*)$"
+_NOT_A_PLACE = re.compile(r"^(?:its|their|the destination|the next|the airport|the field|today|tonight|tomorrow|this |flying|a |an )")
+_WEATHER_WORD = re.compile(r"\b(?:weather|wind|winds|windy|rain|raining|snow|snowing|storms?|forecast|visibility|ceilings?|clouds?|cloudy|temperature|conditions?|vfr|ifr|foggy|fog|cold|hot|warm|sunny|icing|freezing)\b")
+
+
 def wants(text: str) -> tuple[str, str] | None:
     """(kind, the matched text) if a normalized transcript is plainly one of the weather questions."""
+    asked = re.sub(_LEAD, "", text)
     for kind, pattern in (("arrival", _ARRIVAL), ("precip", _PRECIP), ("flying", _FLYING), ("forecast", _FORECAST), ("here", _HERE)):
-        if re.fullmatch(pattern, text):
+        if re.fullmatch(pattern, asked):
             return kind, text
+    return None
+
+
+def wants_at(text: str, ctx: dict | None = None) -> tuple[str, str, dict] | None:
+    """(kind, the question without the place, the airport) for a weather question about a named place.
+
+    "Tell me the weather at Detroit Metro right now", "will it rain in Toledo tonight". The place
+    has to be an airport the list knows (US and Canada); otherwise None, and Aivana is asked.
+    """
+    near = where(ctx or {})
+    for cut in _AT.finditer(text):
+        m = re.fullmatch(r"(.+?)" + _AFTER_PLACE, text[cut.end():])
+        if not m or _NOT_A_PLACE.match(m.group(1)):
+            continue
+        base = text[:cut.start()] + m.group(2)
+        asked = wants(base)
+        if not asked or asked[0] == "arrival":
+            continue
+        field = airports.find(m.group(1), near)
+        if field:
+            return asked[0], base, field
+    return None
+
+
+def mentioned(text: str, ctx: dict | None = None) -> dict | None:
+    """The airport named in a weather question of any wording, for Aivana's context. None if none."""
+    if not _WEATHER_WORD.search(text):
+        return None
+    near = where(ctx or {})
+    for cut in _AT.finditer(text):
+        words = text[cut.end():].split()
+        for n in range(min(4, len(words)), 0, -1):
+            name = " ".join(words[:n])
+            field = None if _NOT_A_PLACE.match(name) else airports.find(name, near)
+            if field:
+                return field
     return None
 
 
@@ -355,14 +402,26 @@ def _asked_for(text: str) -> tuple[tuple, str]:
     return ANY_PRECIP, "rain or snow"
 
 
-def _from_station(report: dict, noun: str) -> str:
-    """"The nearest forecast is Toledo, 14 miles away." when the station isn't where you are."""
+def _from_station(report: dict, noun: str, spot: dict | None = None) -> str:
+    """"The nearest forecast is Toledo, 14 miles away." when the station isn't where you are (or at the place asked about)."""
     d = report.get("distanceNm")
-    return f"The nearest {noun} is {station_name(report)}, {round(d)} miles away. " if d and d >= 3 else ""
+    if not d or d < 3:
+        return ""
+    if spot:
+        return f"The nearest {noun} to {airports.spoken(spot)} is {station_name(report)}, {round(d)} miles from it. "
+    return f"The nearest {noun} is {station_name(report)}, {round(d)} miles away. "
 
 
-async def answer(kind: str, text: str, ctx: dict, plane: dict | None = None, prog: dict | None = None, now: datetime | None = None) -> str:
-    """The spoken answer to one of the weather questions. Never raises."""
+def _named(report: dict, spot: dict | None) -> str:
+    """What to call the station: the airport asked about when the report is from it."""
+    return airports.spoken(spot) if spot and (report.get("distanceNm") or 0) < 3 else station_name(report)
+
+
+async def answer(kind: str, text: str, ctx: dict, plane: dict | None = None, prog: dict | None = None, now: datetime | None = None, spot: dict | None = None) -> str:
+    """The spoken answer to one of the weather questions. Never raises.
+
+    `spot` is an airport that was asked about by name (wants_at); without it the answer is for where the user is.
+    """
     now = now or datetime.now()
     if kind == "arrival":
         if not plane:
@@ -381,16 +440,17 @@ async def answer(kind: str, text: str, ctx: dict, plane: dict | None = None, pro
         report = (await flightinfo.weather(plane, prog)).get("destination")
         return f"There's no forecast for {place(dest)}. Right now it has: {describe_metar(report)}" if report else f"I couldn't get a forecast for {place(dest)}."
 
-    lat, lon = where(ctx)
+    lat, lon = (spot["lat"], spot["lon"]) if spot else where(ctx)
+    there = f" for {airports.spoken(spot)}" if spot else ""
     if kind == "here":
         report = await nearest("metar", lat, lon)
         if not report:
-            return "I couldn't get a weather report just now."
-        return f"{_from_station(report, 'weather station')}{station_name(report)} right now: {describe_metar(report)}"
+            return f"I couldn't get a weather report{there} just now."
+        return f"{_from_station(report, 'weather station', spot)}{_named(report, spot)} right now: {describe_metar(report)}"
 
     taf = await nearest("taf", lat, lon)
     if not taf:
-        return "I couldn't get a forecast just now."
+        return f"I couldn't get a forecast{there} just now."
     start, end, label = window(text, now)
     if kind == "precip":
         codes, noun = _asked_for(text)
@@ -398,19 +458,25 @@ async def answer(kind: str, text: str, ctx: dict, plane: dict | None = None, pro
     if kind == "flying":
         return flying(taf, now, start, end, label)
     hours = max(1.0, (end - now).total_seconds() / 3600)
-    lead = f"{station_name(taf)} forecast"
+    lead = f"{_named(taf, spot)} forecast"
     if start > now + timedelta(minutes=30):
         # A later window ("tonight", "tomorrow"): read the forecast from when it starts.
-        return f"{_from_station(taf, 'forecast')}{lead} for {label}. {summary(taf, start, (end - start).total_seconds() / 3600)}"
-    return f"{_from_station(taf, 'forecast')}{lead}. {summary(taf, now, hours)}"
+        return f"{_from_station(taf, 'forecast', spot)}{lead} for {label}. {summary(taf, start, (end - start).total_seconds() / 3600)}"
+    return f"{_from_station(taf, 'forecast', spot)}{lead}. {summary(taf, now, hours)}"
 
 
-async def context_lines(ctx: dict, now: datetime | None = None) -> list[str]:
-    """Weather near the user and the forecast, as lines for Aivana's context."""
+async def context_lines(ctx: dict, now: datetime | None = None, spot: dict | None = None) -> list[str]:
+    """Weather near the user and the forecast, as lines for Aivana's context. With `spot`, also the weather at that airport."""
     now = now or datetime.now()
     lat, lon = where(ctx)
     report, taf = await asyncio.gather(nearest("metar", lat, lon), nearest("taf", lat, lon), return_exceptions=True)
     lines = []
+    if spot:
+        there, there_taf = await asyncio.gather(nearest("metar", spot["lat"], spot["lon"]), nearest("taf", spot["lat"], spot["lon"]), return_exceptions=True)
+        if isinstance(there, dict):
+            lines.append(f"Weather at {airports.spoken(spot)} now (report from {station_name(there)}, {round(there.get('distanceNm', 0))} miles from it): {describe_metar(there)}")
+        if isinstance(there_taf, dict):
+            lines.append(f"Forecast for {airports.spoken(spot)} ({station_name(there_taf)}; official airport forecast): {summary(there_taf, now)}")
     if isinstance(report, dict):
         lines.append(f"Weather near the user now ({station_name(report)}, {round(report.get('distanceNm', 0))} miles away): {describe_metar(report)}")
     if isinstance(taf, dict):

@@ -112,6 +112,7 @@ To try the pipeline without a live feed, point `FEEDS_FILE` at a list with a `"k
 | "What's that plane?" | `rules.py`, from the plane's own data | about 0.8 s (a long sentence to voice) |
 | "When does it land?", "how far has it flown?", "when did it take off?", "where is it going?" | `flightinfo.py`, from its position, speed and route | about 0.3 s |
 | "What's the weather at its destination / where it is / where it came from?" | `flightinfo.py`, live weather reports | 0.3–0.8 s |
+| "What's the weather at Detroit Metro?", "will it rain in Toledo tonight?", "what's the forecast for Columbus?" | `forecast.py`, for the airport named (US and Canada) | 0.3 to 2 s (a weather lookup, cached) |
 | Anything else ("only Southwest above thirty thousand", "how many seats does it have?", "why is it descending?") | Aivana | 3–6 s |
 
 Measured on this Mac with clean test audio (macOS `say`), 2026-11-20: Whisper about 0.3 s, Kokoro 0.1–0.6 s. A real voice through a phone microphone outdoors will transcribe less cleanly.
