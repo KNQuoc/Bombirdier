@@ -64,6 +64,8 @@ export function createRadio(deps: {
   const transcripts = new Map<string, HeardCall[]>();
   /** Plane id -> the feed it was last named on. */
   const heardOn = new Map<string, { feedId: string; at: number }>();
+  /** Plane id -> the last call that sent it to another controller ("contact Detroit Approach..."). */
+  const handoffs = new Map<string, HeardCall>();
 
   const usable = () => feeds.filter((f) => f.configured);
   /** The home frequency: the first feed that is set up. */
@@ -100,6 +102,7 @@ export function createRadio(deps: {
               while (log.length > TRANSCRIPT_KEPT) log.shift();
               transcripts.set(event.feedId, log);
               if (plane) heardOn.set(plane.id, { feedId: event.feedId, at: call.at });
+              if (plane && event.handoff) handoffs.set(plane.id, call);
               // Away from the home frequency, a call about nobody we can see is just noise in the view.
               if (!plane && event.feedId !== homeId) continue;
               calls.push(call);
@@ -167,9 +170,20 @@ export function createRadio(deps: {
         .slice(-n);
     },
     /** Which feed a plane was last named on, if recently: evidence of who it's talking to. */
-    heardOn(planeId: string, now = Date.now()): { feedId: string; agoS: number } | null {
+    heardOn(planeId: string, now = Date.now()): { feedId: string; agoS: number; at: number } | null {
       const h = heardOn.get(planeId);
-      return h && now - h.at <= HEARD_FOR_MS ? { feedId: h.feedId, agoS: Math.round((now - h.at) / 1000) } : null;
+      return h && now - h.at <= HEARD_FOR_MS ? { feedId: h.feedId, agoS: Math.round((now - h.at) / 1000), at: h.at } : null;
+    },
+    /** The call that last handed a plane to another controller, if recent. */
+    handoff(planeId: string, now = Date.now()): HeardCall | null {
+      const c = handoffs.get(planeId);
+      return c && now - c.at <= HEARD_FOR_MS ? c : null;
+    },
+    /** The newest handoff of any plane, if it was within `withinMs`. */
+    lastHandoff(withinMs: number, now = Date.now()): HeardCall | null {
+      let last: HeardCall | null = null;
+      for (const c of handoffs.values()) if (now - c.at <= withinMs && (!last || c.at > last.at)) last = c;
+      return last;
     },
   };
 }

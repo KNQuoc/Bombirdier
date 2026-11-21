@@ -209,10 +209,75 @@ def position_report(text: str) -> tuple[str | None, str | None]:
     return leg, runway
 
 
+# Who a plane is sent to next: "contact Detroit Approach one two four point zero five".
+HANDOFF_KINDS = {
+    "tower": "tower", "ground": "ground", "approach": "approach", "arrival": "approach", "departure": "departure",
+    "center": "center", "centre": "center", "clearance": "clearance", "ramp": "ramp", "advisory": "advisory",
+}
+_HANDOFF_FILLER = {"the", "your", "to", "over", "now"}
+# Aviation voice frequencies, MHz.
+_VOICE_BAND = (118, 137)
+
+
+def _frequency(tokens: list[str]) -> str | None:
+    """"124.05" from the start of spoken-number tokens: ["1","2","4","point","0","5"], ["124","05"], ["12405"]."""
+    i = 0
+    while i < len(tokens) and tokens[i] in ("on", "at", "frequency", "now"):
+        i += 1
+    whole = ""
+    while i < len(tokens) and tokens[i].isdigit() and len(whole) + len(tokens[i]) <= 6:
+        whole += tokens[i]
+        i += 1
+    frac = ""
+    if i < len(tokens) and tokens[i] in ("point", "decimal"):
+        i += 1
+        while i < len(tokens) and tokens[i].isdigit() and len(frac) + len(tokens[i]) <= 3:
+            frac += tokens[i]
+            i += 1
+    elif len(whole) in (4, 5, 6):  # said without "point", or written "124.05" (the dot is gone by now)
+        whole, frac = whole[:3], whole[3:]
+    if len(whole) != 3 or not frac or not _VOICE_BAND[0] <= int(whole) < _VOICE_BAND[1]:
+        return None
+    return f"{whole}.{frac}"
+
+
+def handoff(text: str) -> dict | None:
+    """Who a call sends a plane to: {"kind": "approach", "place": "detroit", "freq": "124.05"}, or None.
+
+    `kind` is tower, ground, approach, departure, center, clearance, ramp or advisory; `place` and
+    `freq` are None when the controller didn't say them ("contact tower"). Only the instruction
+    counts ("contact", "monitor", "switch to"), not a pilot's "over to tower".
+    """
+    words = _normalize(text)
+    for i, w in enumerate(words):
+        if w in ("contact", "monitor"):
+            j = i + 1
+        elif w == "switch" and words[i + 1 : i + 2] == ["to"]:
+            j = i + 2
+        else:
+            continue
+        place: list[str] = []
+        kind = None
+        while j < len(words) and len(place) <= 3:
+            if words[j] in HANDOFF_KINDS:
+                kind = HANDOFF_KINDS[words[j]]
+                j += 1
+                break
+            if words[j].isdigit() or words[j] in DIGITS or words[j] in ("on", "at", "point"):
+                break
+            if words[j] not in _HANDOFF_FILLER:
+                place.append(words[j])
+            j += 1
+        if not kind:
+            continue
+        return {"kind": kind, "place": " ".join(place) or None, "freq": _frequency(_spoken(words[j:]))}
+    return None
+
+
 def parse(text: str) -> dict:
-    """What a transcribed call says: {"callsignTokens": [...], "reportedLeg": ..., "runway": ...}."""
+    """What a transcribed call says: {"callsignTokens": [...], "reportedLeg": ..., "runway": ..., "handoff": ...}."""
     leg, runway = position_report(text)
-    return {"callsignTokens": callsign_tokens(text), "reportedLeg": leg, "runway": runway}
+    return {"callsignTokens": callsign_tokens(text), "reportedLeg": leg, "runway": runway, "handoff": handoff(text)}
 
 
 _RADIO_NAMES = {}

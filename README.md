@@ -1,6 +1,6 @@
 # Bombirdier
 
-An AR aviation companion for flight students and plane fans at **Wood County Regional Airport (1G0)** in Bowling Green, OH, home of the BGSU flight program.
+An AR aviation companion for people learning air traffic control, flight students and plane fans at **Wood County Regional Airport (1G0)** in Bowling Green, OH, home of the BGSU flight program.
 
 **The problem.** From the ground you can see a plane but not what it is, where it is going, which leg of the traffic pattern it is flying, or who it is talking to. Finding out means a flight tracker in one hand and a radio scanner in the other.
 
@@ -9,6 +9,7 @@ An AR aviation companion for flight students and plane fans at **Wood County Reg
 - every plane gets a marker at its real spot in the sky, and the one you look at gets a card (type, route, altitude, speed, where it left from);
 - the home field's runways and traffic pattern are drawn, and planes in the pattern are labelled with their leg;
 - live air traffic control calls are transcribed, and a call that names a plane lights that plane up;
+- every plane can be coloured by the controller working it, with handoffs between controllers picked up from the radio;
 - a hands-free voice assistant answers questions and works the app: tip your head to one side, then ask.
 
 Personal project by da squad
@@ -77,7 +78,8 @@ Plug the phone into the Mac: `run.sh` keeps the USB link to the server up, and t
 4. Say **"show me the helicopters"**, then **"sort by altitude"**, then **"close the list"**.
 5. Ask something open, such as **"how many seats does it have?"** (this one goes to Aivana and takes a few seconds).
 6. Ask **"what's the weather?"**, or **"what's the weather at Detroit Metro?"**.
-7. Say **"what can I say?"** for more.
+7. Say **"show me the airspace"**: every plane takes the colour of the controller working it, and a plane told to "contact" the next controller changes colour.
+8. Say **"what can I say?"** for more.
 
 On the phone, talking starts with a head tilt held for about a second, or two fingers on the screen when the phone is in your hand.
 

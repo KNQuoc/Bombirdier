@@ -63,7 +63,7 @@ check("base as a noun is not a leg", R.position_report("Returning to base, reque
 check("nothing", R.position_report("Radar contact, say altitude"), (None, None))
 
 check("parse puts it together", R.parse("Archer niner zero one Bravo Golf, left downwind runway two eight"),
-      {"callsignTokens": ["901BG"], "reportedLeg": "left downwind", "runway": "28"})
+      {"callsignTokens": ["901BG"], "reportedLeg": "left downwind", "runway": "28", "handoff": None})
 
 check("spoken form: airline", R.spoken_form("DAL1830"), "Delta 1830")
 check("spoken form: tail", R.spoken_form("N337BG"), "November 337 Bravo Golf")
@@ -111,6 +111,27 @@ check("flight number ends at the sentence", tokens("Skywest 4129. Seven finishes
 check("tail fragment written in one piece", tokens("Skyhawk 570U, form contact Cleveland Center 124.4."), ["570U"])
 check("number groups still join inside a clause", tokens("Delta 18 30, descend and maintain 4,000."), ["DAL1830"])
 check("a comma ends the flight number", tokens("United 12, 34 heavy"), ["UAL12"])
+
+# Handoffs: who a plane is sent to next.
+for text, want in [
+    ("Delta 2751, contact Detroit Approach one two four point zero five.", {"kind": "approach", "place": "detroit", "freq": "124.05"}),
+    ("Endeavor 5117 contact Cleveland Center 134.12", {"kind": "center", "place": "cleveland", "freq": "134.12"}),
+    ("Spirit 404, contact tower one one eight point four, good day", {"kind": "tower", "place": None, "freq": "118.4"}),
+    ("American 1120 contact the tower now, 135.0", {"kind": "tower", "place": None, "freq": "135.0"}),
+    ("Skywest 4129, contact departure", {"kind": "departure", "place": None, "freq": None}),
+    ("November 327 Bravo Echo, contact Toledo Approach on one two six point one", {"kind": "approach", "place": "toledo", "freq": "126.1"}),
+    ("United 88 switch to Indy Center one two eight point two five", {"kind": "center", "place": "indy", "freq": "128.25"}),
+    ("Delta 1830, monitor tower one three five decimal zero", {"kind": "tower", "place": None, "freq": "135.0"}),
+    ("Jazz 7861 contact Toronto Centre 132.47", {"kind": "center", "place": "toronto", "freq": "132.47"}),
+    ("Over to tower, Delta 2751, good day.", None),
+    ("Delta 1830, descend and maintain four thousand.", None),
+    ("Archer 901 Bravo Golf, left downwind runway two eight, Wood County", None),
+    ("Contact me if you need anything", None),
+    ("Contact ground point niner", {"kind": "ground", "place": None, "freq": None}),
+    ("Contact Detroit Approach nine nine nine point nine", {"kind": "approach", "place": "detroit", "freq": None}),
+]:
+    check(f"handoff: {text}", R.handoff(text), want)
+check("parse carries the handoff", R.parse("Delta 2751, contact Detroit Approach 124.05")["handoff"], {"kind": "approach", "place": "detroit", "freq": "124.05"})
 
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

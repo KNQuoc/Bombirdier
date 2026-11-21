@@ -147,6 +147,22 @@ def quick(text: str, context: dict) -> dict | None:
     if re.fullmatch(r"(reset|auto|automatic)( the)? radar( range| zoom)?|radar auto(matic)?|reset( the)? zoom", t):
         return _reply("Radar back to automatic.", {"type": "radar_range", "nm": 0})
 
+    # Who is working which plane: every plane coloured by its controller ("show me the airspace").
+    _them = r"(?:the |all the )?(?:planes|aircraft|traffic|sky|them|everything)"
+    if re.fullmatch(
+        rf"colou?r(?: code)? {_them} by (?:controller|controllers|frequency|airspace|sector|who(?:s| is) (?:controlling|working|talking to) (?:them|it))"
+        r"|colou?r by (?:controller|controllers|frequency|airspace|sector)"
+        r"|(?:show|display)(?: me)? (?:the )?(?:airspace|sectors|controllers colou?rs)"
+        r"|(?:show|display)(?: me)? who(?:s| is)? (?:controls|controlling|working|talking to) (?:what|who|whom|which planes?|the planes|them|everyone|everybody)"
+        r"|who(?:s| is)? (?:controls|controlling|working) (?:what|which planes?|everyone|everybody|all (?:these|the|of these) planes)"
+        r"|airspace (?:on|view|mode|colou?rs)", t):
+        return _reply("Planes are coloured by controller.", {"type": "airspace", "state": "show"})
+    if re.fullmatch(
+        r"(?:hide|stop showing|turn off|close|remove)(?: the)? (?:airspace|sectors|controller colou?rs)"
+        r"|(?:normal|regular|usual|default) colou?rs(?: again)?|(?:back to|go back to|use)(?: the)? (?:normal|regular|usual|default) colou?rs"
+        r"|colou?r(?: {0})? by (?:status|type)|stop colou?ring(?: {0})?(?: by controller)?|airspace off".format(_them), t):
+        return _reply("Back to the normal colours.", {"type": "airspace", "state": "hide"})
+
     # Only some planes in the sky ("only show helicopters in the sky"). The list has its own filter;
     # this one decides what gets an icon on the compass bar and a bracket in the sky.
     _sky = r"(?:in the sky|in the view|in view|in my view|on the bar|on the compass|on the headband|in ar|up there|around me)"

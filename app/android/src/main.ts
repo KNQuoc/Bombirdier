@@ -55,7 +55,10 @@ import { FACILITIES, channelsOf, facilityOfFeed } from './atc/facilities';
 import type { Facility } from './atc/facilities';
 import { createStations } from './atc/stations';
 import type { StationInfo } from './atc/stations';
-import { radioLine, whoControls } from './atc/whoControls';
+import { agoShort, radioLine, whoControls } from './atc/whoControls';
+import { controlColor, controlOf, legendRows, resolveHandoff, shortName } from './atc/control';
+import type { Control, LegendRow } from './atc/control';
+import { drawAirspaceLegend } from './atc/control-draw';
 import { drawConnected, drawRadio } from './radio/draw';
 import type { ConnectedView } from './radio/draw';
 import { createListener } from './radio/listen';
@@ -457,6 +460,7 @@ const assistant = createAssistant({
       runwaySelect.value = ident;
       return true;
     },
+    setAirspace,
     setSkyFilter: (filter) => {
       skyFilter = filter === 'list' ? skyFilterFrom(list.state().filter) : skyFilterFrom(filter);
       const near = traffic?.near.get().planes ?? [];
@@ -579,6 +583,41 @@ function planeRadio(p: Plane) {
   };
 }
 
+/** The controller working a plane, and how that is known: a handoff heard, its callsign heard, or a guess (atc/control.ts). */
+function planeControl(p: Plane): Control | null {
+  const heardAt = radio.heardOn(p.id);
+  const heardFacility = heardAt ? facilityOfFeed(radio.feed(heardAt.feedId)) : null;
+  const call = radio.handoff(p.id);
+  const to = call?.event.handoff ? resolveHandoff(call.event.handoff, facilityOfFeed(radio.feed(call.event.feedId)), radio.feeds()) : null;
+  return controlOf({
+    guess: whoControls(p)?.facility ?? null,
+    heard: heardAt && heardFacility ? { facility: heardFacility, feedId: heardAt.feedId, at: heardAt.at } : null,
+    handed: call && to ? { to: to.facility, name: to.name, fromFeedId: call.event.feedId, at: call.at } : null,
+  });
+}
+
+/** A handoff stays on the plane's card this long. */
+const HANDOFF_LINE_MS = 90_000;
+
+/** "⇄ Detroit Arrival East → Tower 118.4 · 12s ago": the plane was just sent to another controller. */
+function handoffLine(planeId: string, now = Date.now()): string | null {
+  const call = radio.handoff(planeId, now);
+  if (!call?.event.handoff || now - call.at > HANDOFF_LINE_MS) return null;
+  const feed = radio.feed(call.event.feedId);
+  const from = facilityOfFeed(feed);
+  const fromName = from ? (feed && channels(from).length > 1 ? `${shortName(from)} ${feed.channel}` : from.name) : (feed?.name ?? 'A controller');
+  return `⇄ ${fromName} → ${resolveHandoff(call.event.handoff, from, radio.feeds()).name} · ${agoShort((now - call.at) / 1000)}`;
+}
+
+/** The airspace view's legend for this frame (null = the view is off). */
+let airspaceLegend: { rows: LegendRow[]; last: string | null } | null = null;
+
+function setAirspace(on: boolean) {
+  appSettings = { ...appSettings, colorByController: on };
+  saveAppSettings(appSettings);
+  console.info(`[airspace] planes coloured by controller: ${on ? 'on' : 'off'}`);
+}
+
 function stationInfo(f: Facility): StationInfo {
   const now = Date.now();
   return {
@@ -651,6 +690,7 @@ function frame() {
   const activeRunway = runwayInUse();
   pattern.update(nearPlanes, activeRunway, Date.now());
   const legCodes: Record<string, string> = {};
+  const controls = new Map<string, Control | null>();
   const planes = nearPlanes.map((p) => {
     const leg = pattern.legOf(p.id)?.leg;
     // What the plane itself said on the radio, next to what the app worked out: a mismatch is worth seeing.
@@ -659,13 +699,25 @@ function frame() {
     const talkingTo = appSettings.radioCalls ? (planeRadio(p)?.line ?? null) : null;
     // Where it left from, for a plane with no route. Not in the pattern: that line says more.
     const from = !leg && !p.onGround && routeless(p) ? departures.line(p.id, Date.now()) : null;
-    if (!leg && !said && !talkingTo && !from) return p;
+    // Just sent to another controller.
+    const handed = appSettings.radioCalls ? handoffLine(p.id) : null;
+    // The airspace view: the plane takes its controller's colour (BGSU orange included; the tag stays).
+    const control = appSettings.colorByController ? planeControl(p) : undefined;
+    if (control !== undefined) controls.set(p.id, control);
+    const accent = control === undefined ? {} : { accent: controlColor(control) };
+    if (!leg && !said && !talkingTo && !from && !handed) return control === undefined ? p : { ...p, ...accent };
     const code = leg && legCode(leg);
     if (code) legCodes[p.id] = code;
     const inPattern = [leg && legLabel(leg, runwayEnd(AIRPORT, activeRunway)), said && `📻 said ${said}`].filter(Boolean).join(' · ');
-    return { ...p, note: [inPattern, from, talkingTo].filter(Boolean).join('\n') };
+    return { ...p, ...accent, note: [inPattern, from, handed, talkingTo].filter(Boolean).join('\n') };
   });
   const shown = applySkyFilter(planes, skyFilter);
+  if (appSettings.colorByController) {
+    const last = radio.lastHandoff(45_000);
+    const who = last?.plane && (last.plane.callsign?.trim() || last.plane.registration);
+    const to = last?.event.handoff ? resolveHandoff(last.event.handoff, facilityOfFeed(radio.feed(last.event.feedId)), radio.feeds()).name : null;
+    airspaceLegend = { rows: legendRows(shown.map((p) => controls.get(p.id) ?? null)), last: who && to ? `⇄ ${who} → ${to.replace(/ 1\d\d\.\d+$/, '')}` : null };  // the frequency is on the plane's card
+  } else airspaceLegend = null;
   const viewer = gps?.get() ?? null;
   const field = viewer ? airportView(viewer, activeRunway) : null;
   const listView = list.view();
@@ -760,6 +812,8 @@ function frame() {
     lastFocusId = lastHud.focus?.id ?? null;
     if (listView && showPanel) drawList(eye.ctx, width, height, listView, hud.headingDeg, hud.timeMs);
     if (skyFilter) drawSkyFilterChip(eye.ctx, width, height, skyFilter);
+    // The legend sits where the list and the assistant's text go: they come first.
+    if (airspaceLegend && !(listView && showPanel) && !voiceShowing) drawAirspaceLegend(eye.ctx, width, height, airspaceLegend.rows, airspaceLegend.last);
     if (connectedView) drawConnected(eye.ctx, width, height, connectedView, transcriptShowing && !voiceShowing);
     // The one-line subtitle is for when no transcript is on screen (it would say the same thing twice).
     if (radioCall && !transcriptShowing) drawRadio(eye.ctx, width, height, radioCall, traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM);
@@ -1188,6 +1242,8 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'l' || e.key === 'L') toggleList();
   // S = the list's filter on the sky (again = off).
   else if (e.key === 's' || e.key === 'S') skyFilter = skyFilter ? null : skyFilterFrom(list.state().filter);
+  // K = colour the planes by controller (again = normal colours).
+  else if (e.key === 'k' || e.key === 'K') setAirspace(!appSettings.colorByController);
   // C = listen to the controller in the middle of the view (again = stop). M = mute, T = transcript.
   else if (e.key === 'c' || e.key === 'C') {
     const feedId = lastHud.station && stationBrief(lastHud.station.id)?.feedId;
@@ -1262,6 +1318,14 @@ setInterval(() => {
   context: voiceContext,
   /** Every plane the app knows the departure airfield of, as its card would say it. */
   departures: () => departures.known(Date.now()),
+  /** The airspace view: who is working each plane in view, and how that is known. */
+  airspace: (on?: boolean) => {
+    if (on !== undefined) setAirspace(on);
+    return { on: appSettings.colorByController, legend: airspaceLegend, planes: (traffic?.near.get().planes ?? []).map((p) => {
+      const c = planeControl(p);
+      return { plane: p.callsign?.trim() || p.registration || p.id, controller: c?.name ?? null, facility: c?.facility?.id ?? null, evidence: c?.evidence ?? null };
+    }) };
+  },
   debug: () => ({ server: serverHealth, radio: radio.describe(), listening: listener.state(), station: lastHud.station?.id ?? null, focus: lastHud.focus ? { name: lastHud.focus.callsign ?? lastHud.focus.registration, note: lastHud.focus.note ?? null } : null, heard: radio.latest()?.event.text ?? null, highlighted: radio.highlightIds(), voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
 };
 

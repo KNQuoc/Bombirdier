@@ -56,6 +56,8 @@ export type RadioEvent = {
   /** "left downwind" and the like, from a pattern position report. */
   reportedLeg: string | null;
   runway: string | null;
+  /** "Contact Detroit Approach 124.05": who the call sends the plane to (kind, place and frequency as said). */
+  handoff: { kind: string; place: string | null; freq: string | null } | null;
 };
 
 export type FeedInfo = {
@@ -89,6 +91,16 @@ function feedInfo(value: unknown): FeedInfo | null {
   };
 }
 
+function handoffOf(value: unknown): RadioEvent['handoff'] {
+  const h = value as Record<string, unknown> | null;
+  if (!h || typeof h.kind !== 'string') return null;
+  return {
+    kind: h.kind.slice(0, 12),
+    place: typeof h.place === 'string' ? h.place.slice(0, 40) : null,
+    freq: typeof h.freq === 'string' && /^1\d\d\.\d{1,3}$/.test(h.freq) ? h.freq : null,
+  };
+}
+
 function radioEvent(value: unknown): RadioEvent | null {
   const e = value as Record<string, unknown> | null;
   if (!e || typeof e.id !== 'number' || typeof e.text !== 'string') return null;
@@ -100,6 +112,7 @@ function radioEvent(value: unknown): RadioEvent | null {
     callsignTokens: Array.isArray(e.callsignTokens) ? e.callsignTokens.filter((t) => typeof t === 'string').map((t) => (t as string).slice(0, 10)).slice(0, 6) : [],
     reportedLeg: typeof e.reportedLeg === 'string' ? e.reportedLeg.slice(0, 30) : null,
     runway: typeof e.runway === 'string' ? e.runway.slice(0, 4) : null,
+    handoff: handoffOf(e.handoff),
   };
 }
 

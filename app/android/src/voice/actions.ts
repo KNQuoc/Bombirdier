@@ -23,6 +23,8 @@ export type ActionDeps = {
    * through, and the AR radius they are within.
    */
   setSkyFilter: (filter: unknown | 'list' | null) => { label: string | null; matching: number; withinKm: number };
+  /** Planes coloured by controller, on or off. */
+  setAirspace: (on: boolean) => void;
   /** How far the data reaches, for "no helicopters within 250 miles". */
   coverageNm: () => number;
   /** How many planes the app knows about at all. Zero means there's no data, not an empty sky. */
@@ -177,6 +179,9 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
         else say = `Only ${now.label} in the sky now: ${now.matching} within ${Math.round(now.withinKm)} kilometers.`;
         break;
       }
+      case 'airspace':
+        if (a.state === 'show' || a.state === 'hide') deps.setAirspace(a.state === 'show');
+        break;
       case 'ar_range':
         if (typeof a.km === 'number' && a.km >= 0) deps.setArRadiusKm(a.km > 0 ? a.km : null);
         break;

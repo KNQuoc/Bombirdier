@@ -712,5 +712,14 @@ async def _weather_at_a_place():
 
 asyncio.run(_weather_at_a_place())
 
+# Planes coloured by controller ("airspace").
+for text in ("Show me the airspace.", "Color the planes by controller", "colour by frequency", "Show me who's controlling what", "who controls what", "airspace on"):
+    check(f"airspace on: {text}", actions(text), [{"type": "airspace", "state": "show"}])
+for text in ("Hide the airspace", "normal colors", "Back to the normal colours.", "stop coloring by controller", "color by status", "airspace off"):
+    check(f"airspace off: {text}", actions(text), [{"type": "airspace", "state": "hide"}])
+check("airspace: who is controlling it stays a plane question", actions("who is controlling it"), actions("who is it talking to"))
+check("airspace action: valid", tools.validate_actions([{"type": "airspace", "state": "show"}]), [{"type": "airspace", "state": "show"}])
+check("airspace action: wrong state dropped", tools.validate_actions([{"type": "airspace", "state": "up"}]), [])
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

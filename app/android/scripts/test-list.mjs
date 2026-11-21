@@ -853,6 +853,100 @@ try {
     assert.match(g.line('a1b2c3', T), /^From Wood County/);
   });
 
+  // ---- The airspace view: who is working a plane, and what a handoff does to that ----
+  const CT = await vite.ssrLoadModule('/src/atc/control.ts');
+  const FA = await vite.ssrLoadModule('/src/atc/facilities.ts');
+  const AIRSPACE_FEEDS = [
+    { id: 'dtw-app-east', facility: 'dtw-app', freqs: ['124.05'] },
+    { id: 'dtw-twr', facility: 'dtw-app', freqs: ['118.4', '135.0'] },
+    { id: 'zob-47', facility: 'zob', freqs: ['119.325'] },
+    { id: 'tol-app', facility: 'tol-app', freqs: ['118.1', '126.1', '134.35'] },
+  ];
+
+  test('handoff: a frequency we carry names the controller', () => {
+    const r = CT.resolveHandoff({ kind: 'approach', place: 'detroit', freq: '124.05' }, FA.CLEVELAND_CENTER, AIRSPACE_FEEDS);
+    assert.equal(r.facility, FA.DETROIT_APPROACH);
+    assert.equal(r.name, 'Detroit Approach 124.05');
+  });
+  test('handoff: "124.050" is the same frequency as "124.05"', () => {
+    assert.equal(CT.resolveHandoff({ kind: 'approach', place: null, freq: '124.050' }, FA.CLEVELAND_CENTER, AIRSPACE_FEEDS).facility, FA.DETROIT_APPROACH);
+  });
+  test('handoff: by name when the frequency is unknown', () => {
+    assert.equal(CT.resolveHandoff({ kind: 'center', place: 'cleveland', freq: '134.12' }, FA.DETROIT_APPROACH, AIRSPACE_FEEDS).facility, FA.CLEVELAND_CENTER);
+    assert.equal(CT.resolveHandoff({ kind: 'approach', place: 'toledo', freq: null }, FA.CLEVELAND_CENTER, AIRSPACE_FEEDS).facility, FA.TOLEDO_APPROACH);
+  });
+  test('handoff: "Cleveland Approach" is not Cleveland Center', () => {
+    const r = CT.resolveHandoff({ kind: 'approach', place: 'cleveland', freq: null }, FA.CLEVELAND_CENTER, AIRSPACE_FEEDS);
+    assert.equal(r.facility, null);
+    assert.equal(r.name, 'Cleveland Approach');
+  });
+  test('handoff: "contact tower" stays at the same airport', () => {
+    const r = CT.resolveHandoff({ kind: 'tower', place: null, freq: '118.4' }, FA.DETROIT_APPROACH, AIRSPACE_FEEDS);
+    assert.equal(r.facility, FA.DETROIT_APPROACH);
+    assert.equal(r.name, 'Tower 118.4');
+  });
+  test('handoff: "contact center" from Detroit is Cleveland Center, from Columbus it is not guessed', () => {
+    assert.equal(CT.resolveHandoff({ kind: 'center', place: null, freq: null }, FA.DETROIT_APPROACH, AIRSPACE_FEEDS).facility, FA.CLEVELAND_CENTER);
+    assert.equal(CT.resolveHandoff({ kind: 'center', place: null, freq: null }, FA.COLUMBUS_APPROACH, AIRSPACE_FEEDS).facility, null);
+  });
+  test('handoff: someone we have no entry for keeps their name', () => {
+    const r = CT.resolveHandoff({ kind: 'center', place: 'indy', freq: '128.25' }, FA.COLUMBUS_APPROACH, AIRSPACE_FEEDS);
+    assert.equal(r.facility, null);
+    assert.equal(r.name, 'Indy Center 128.25');
+  });
+
+  const T0 = 1_000_000;
+  test('control: nothing heard is a guess', () => {
+    assert.deepEqual(CT.controlOf({ guess: FA.TOLEDO_APPROACH, heard: null, handed: null }), { facility: FA.TOLEDO_APPROACH, name: 'Toledo Approach', evidence: 'guess' });
+    assert.equal(CT.controlOf({ guess: null, heard: null, handed: null }), null);
+  });
+  test('control: a callsign heard beats the guess', () => {
+    const c = CT.controlOf({ guess: FA.TOLEDO_APPROACH, heard: { facility: FA.CLEVELAND_CENTER, feedId: 'zob-47', at: T0 }, handed: null });
+    assert.equal(c.facility, FA.CLEVELAND_CENTER);
+    assert.equal(c.evidence, 'heard');
+  });
+  test('control: a handoff moves the plane to the next controller', () => {
+    const c = CT.controlOf({
+      guess: FA.CLEVELAND_CENTER,
+      heard: { facility: FA.CLEVELAND_CENTER, feedId: 'zob-47', at: T0 },
+      handed: { to: FA.DETROIT_APPROACH, name: 'Detroit Approach 124.05', fromFeedId: 'zob-47', at: T0 },
+    });
+    assert.deepEqual(c, { facility: FA.DETROIT_APPROACH, name: 'Detroit Approach 124.05', evidence: 'handoff' });
+  });
+  test("control: the pilot's readback on the old frequency doesn't undo the handoff", () => {
+    const c = CT.controlOf({
+      guess: null,
+      heard: { facility: FA.CLEVELAND_CENTER, feedId: 'zob-47', at: T0 + 5000 },
+      handed: { to: FA.DETROIT_APPROACH, name: 'Detroit Approach', fromFeedId: 'zob-47', at: T0 },
+    });
+    assert.equal(c.facility, FA.DETROIT_APPROACH);
+  });
+  test('control: heard on another frequency after the handoff is newer evidence', () => {
+    const c = CT.controlOf({
+      guess: null,
+      heard: { facility: FA.DETROIT_APPROACH, feedId: 'dtw-twr', at: T0 + 60_000 },
+      handed: { to: null, name: 'Indy Center', fromFeedId: 'zob-47', at: T0 },
+    });
+    assert.equal(c.evidence, 'heard');
+    assert.equal(c.facility, FA.DETROIT_APPROACH);
+  });
+  test('control: a guess is the same colour, fainter', () => {
+    const heard = CT.controlColor({ facility: FA.DETROIT_APPROACH, name: '', evidence: 'heard' });
+    const guess = CT.controlColor({ facility: FA.DETROIT_APPROACH, name: '', evidence: 'guess' });
+    assert.equal(heard, 'rgba(255, 111, 181, 1)');
+    assert.equal(guess, 'rgba(255, 111, 181, 0.5)');
+    assert.notEqual(CT.controlColor(null), guess);
+  });
+  test('control: every controller has its own colour', () => {
+    const colors = FA.FACILITIES.map((f) => CT.facilityColor(f));
+    assert.equal(new Set(colors).size, FA.FACILITIES.length);
+  });
+  test('legend: most planes first, someone else last, heard counted', () => {
+    const g = (facility, evidence = 'guess') => ({ facility, name: '', evidence });
+    const rows = CT.legendRows([null, g(FA.TOLEDO_APPROACH), g(FA.CLEVELAND_CENTER), g(FA.CLEVELAND_CENTER, 'heard'), g(null, 'handoff'), g(FA.CLEVELAND_CENTER)]);
+    assert.deepEqual(rows.map((r) => [r.label, r.count, r.heard]), [['Cleveland Center', 3, 1], ['Toledo', 1, 0], ['Someone else', 2, 1]]);
+  });
+
 } catch (e) {
   console.error(e);
   failed++;
