@@ -1,7 +1,3 @@
-# Bombirdier (this fork)
-
-This repo is **Bombirdier**, Kien's personal fork of SkyLens. Before working on it, read [docs/bombirdier-plan.md](docs/bombirdier-plan.md) (the build plan, done phase by phase) and [PROGRESS.md](PROGRESS.md) (what's done). After finishing a piece of work: tick it in `PROGRESS.md`, add a line to its Log, and comment on or close the matching GitHub phase issue. New Bombirdier pieces get described in the "Bombirdier" section below as they're built. The rest of this file describes the original hackathon project and still applies to the shared code.
-
 ## Bombirdier
 
 - **Sky placement (Phase 0).** When `HudState.pitchDeg` and `viewerAltM` are passed, `web/src/hud.ts` draws a corner bracket on each plane at its real spot in the camera view and hangs the focused plane's card under its bracket. Focus is the plane with the smallest true angle from the view center. Without those two fields the HUD is compass-only, as before (the web app passes neither).
