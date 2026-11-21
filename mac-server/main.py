@@ -10,6 +10,7 @@
 Run:  ./run.sh      (http://127.0.0.1:8787; the phone reaches it over USB with `adb reverse tcp:8787 tcp:8787`)
 """
 import base64
+from datetime import datetime
 import hmac
 import ipaddress
 import os
@@ -30,6 +31,8 @@ import feeds
 import flightinfo
 import forecast
 import opensky
+import radiolog
+import radiotalk
 import gpu
 import llm
 import radio
@@ -137,6 +140,7 @@ async def _startup() -> None:
     gpu.executor.submit(transcribe.warm_up)
     gpu.executor.submit(tts.warm_up)
     feeds.load()
+    radiolog.enabled = config.RADIO_LOG
     asyncio.create_task(feeds.idle_watch())
 
 
@@ -166,6 +170,18 @@ async def speak(req: SpeakRequest) -> dict:
 async def health(request: Request) -> dict:
     # tokenNeeded tells a phone on Wi-Fi up front that its questions will be refused without the token.
     return {"ok": True, "whisper": transcribe.state(), "tts": tts.state(), "aivana": llm.available(), "tokenNeeded": not _from_this_mac(request)}
+
+
+def _feed_names() -> dict[str, dict]:
+    return {f.id: {"facility": f.cfg.get("facility") or f.id, "channel": f.cfg.get("channel") or f.cfg.get("name", f.id), "name": f.cfg.get("name", f.id)} for f in feeds.all_feeds() if f.configured}
+
+
+@app.get("/api/radio/summary")
+async def radio_summary(hours: float = 6):
+    """What the written record of radio calls holds for the last `hours` (see radiolog.py)."""
+    hours = max(0.1, min(72.0, hours))
+    records = await asyncio.to_thread(radiolog.read, time.time() - hours * 3600)
+    return {"logging": radiolog.enabled, "hours": hours, **radiolog.summary(records, _feed_names())}
 
 
 @app.get("/api/weather/wind")
@@ -264,6 +280,15 @@ async def ask(req: AskRequest) -> dict:
     error = None
     # Arrival time, distance and weather questions about the plane you're looking at: answered here
     # from its position, its route and current weather reports. (Weather is a quick lookup, cached.)
+    # "How busy was Detroit overnight?": from the written record of calls (radiolog.py).
+    logged = None if reply else radiotalk.log_question(rules.normalize(transcript), req.context, datetime.now().hour + datetime.now().minute / 60)
+    if logged:
+        records = await asyncio.to_thread(radiolog.read, time.time() - logged["hours"] * 3600)
+        names = {s.get("id"): s.get("name") for s in (radio_ctx.get("stations") or []) if isinstance(s, dict)}
+        if not radiolog.enabled and not records:
+            reply = {"answer": "I'm not keeping a record of radio calls. Set RADIO_LOG to on in the server's settings to start one.", "actions": []}
+        else:
+            reply = {"answer": radiolog.spoken(radiolog.summary(records, _feed_names()), logged["hours"], names, logged["facility"]), "actions": []}
     # Weather here and the forecast ("will it rain this afternoon?", "what's the weather when it lands?"):
     # official airport reports and forecasts, looked up directly (cached).
     asked = None if reply else forecast.wants(rules.normalize(transcript))

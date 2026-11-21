@@ -35,3 +35,5 @@ PORT = int(os.environ.get("PORT", "8787"))
 # (adb reverse) arrive from 127.0.0.1 and don't need it. Empty = only this Mac may ask questions.
 SERVER_TOKEN = os.environ.get("BOMBIRDIER_TOKEN", "")
 USER_AGENT = "Bombirdier/0.1 (personal project)"
+# Keep a written record of radio calls (text only, in mac-server/logs/, not in git). See radiolog.py.
+RADIO_LOG = os.environ.get("RADIO_LOG", "").strip().lower() in ("1", "on", "true", "yes")

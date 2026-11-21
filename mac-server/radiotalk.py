@@ -88,7 +88,7 @@ def _and(names: list[str]) -> str:
 
 
 def _named_station(ctx: dict, words: str) -> dict | None:
-    key = _NAMES.get(re.sub(r"^(the|to) ", "", words))
+    key = _NAMES.get(words) or _NAMES.get(re.sub(r"^(the|to) ", "", words))
     if not key:
         return None
     return next((s for s in _stations(ctx) if key in (s.get("name") or "").lower()), None)
@@ -171,12 +171,13 @@ def _connect_channel(ctx: dict, station: dict, channel: dict, scope: str | None)
 
 def _station_in(ctx: dict, words: str) -> tuple[dict, str] | None:
     """A controller named at the start of some words, and what follows it: "detroit arrival east" -> (Detroit, "arrival east")."""
-    words = re.sub(r"^(the|to) ", "", words)
-    for said in sorted(_NAMES, key=len, reverse=True):
-        if words == said or words.startswith(said + " "):
-            station = _named_station(ctx, said)
-            if station:
-                return station, words[len(said):].strip()
+    # With and without a leading "the": "the pattern" is a name of its own, "the detroit tower" is not.
+    for form in (words, re.sub(r"^(the|to) ", "", words)):
+        for said in sorted(_NAMES, key=len, reverse=True):
+            if form == said or form.startswith(said + " "):
+                station = _named_station(ctx, said)
+                if station:
+                    return station, form[len(said):].strip()
     return None
 
 
@@ -345,3 +346,39 @@ def quick(t: str, ctx: dict) -> dict | None:
             return _reply("No radio feed is playing on the Mac right now.")
         return _reply(("Live right now: " + ", ".join(live) + ".") if len(live) > 1 else f"Only {live[0]} is live right now.")
     return None
+
+
+# ---- "How busy was Detroit overnight?": questions about the written record (radiolog.py) -------------
+
+_SPAN = r"(?: overnight| tonight| last night| today| this morning| so far| while i was (?:asleep|sleeping|away|gone)| since i (?:went to bed|left|fell asleep)| (?:in|over|during|for) the (?:last|past) (?:\w+ )?(?:hours?|minutes?))*"
+_LOG_QUESTION = (
+    rf"how busy (?:was|has|is|were|have)(?: it| the radio| things| (.+?))?(?: been)?{_SPAN}"
+    rf"|how many (?:calls|conversations|transmissions|radio calls|exchanges)(?: were there| have there been| did you (?:hear|log|get|record)| have you (?:heard|logged|recorded)| happened)?(?: (?:on|at|from|with) (.+?))?{_SPAN}"
+    rf"|(?:give me |whats |what is )?(?:the |a )?(?:radio |overnight )+(?:summary|report|recap|log)(?: (?:for|on|of) (.+?))?{_SPAN}"
+    rf"|(?:summarize|summarise|recap)(?: the)? (?:radio|night|overnight|calls)(?: (?:for|on|at) (.+?))?{_SPAN}"
+)
+_HOUR_WORDS = {"an": 1, "one": 1, "couple": 2, "two": 2, "few": 3, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "twelve": 12}
+
+
+def log_question(t: str, ctx: dict, now_hour: float | None = None) -> dict | None:
+    """{hours, facility (an id, or None for all of them)} if the normalized text asks about the record of calls."""
+    m = re.fullmatch(_LOG_QUESTION, t)
+    if not m:
+        return None
+    hours = 6.0
+    span = re.search(r"(?:last|past) (?:(\w+) )?(hours?|minutes?)", t)
+    if span:
+        word = span.group(1) or "one"
+        n = float(word) if word.isdigit() else _HOUR_WORDS.get(word)
+        if n:
+            hours = n / 60 if span.group(2).startswith("minute") else n
+    elif re.search(r"overnight|last night|asleep|sleeping|went to bed|fell asleep", t):
+        hours = 8.0
+    elif re.search(r"today|this morning|so far", t) and now_hour is not None:
+        hours = max(1.0, now_hour)  # since midnight
+    said = next((g for g in m.groups() if g), None)
+    station = (_station_in(ctx, said) or (None,))[0] if said else None
+    if said and not station:
+        return None  # "how busy was the tower?": not something this can answer by itself
+    return {"hours": hours, "facility": station.get("id") if station else None}
+

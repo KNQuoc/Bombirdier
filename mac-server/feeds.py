@@ -30,6 +30,7 @@ from pathlib import Path
 import config
 import gpu
 import radio_parse
+import radiolog
 import transcribe
 from splitter import SAMPLE_RATE, CallSplitter, _rms
 
@@ -314,6 +315,7 @@ class Feed:
         event = {"id": _next_event_id(), "feedId": self.id, "ts": heard_at, "text": text, "seconds": round(len(call) / (SAMPLE_RATE * 2), 1), **parsed}
         self.events.append(event)
         self.last_call_at = heard_at
+        radiolog.write({"type": "call", **event, "facility": self.cfg.get("facility") or self.id, "channel": self.cfg.get("channel") or self.cfg.get("name", self.id)})
         for token in parsed["callsignTokens"]:
             self.heard[token] = (heard_at, event["id"])
 
@@ -390,7 +392,12 @@ def around(feed_id: str | None = None) -> list[str]:
 
 async def idle_watch() -> None:
     """Stops feeds nobody has asked about for a while. Runs for the life of the server."""
+    logged_at = 0.0
     while True:
+        # How every feed is doing, every five minutes, for the written record (radiolog.py).
+        if radiolog.enabled and time.time() - logged_at >= radiolog.STATUS_EVERY_S:
+            logged_at = time.time()
+            radiolog.write({"type": "status", "ts": logged_at, "feeds": {f.id: {"status": f.current_status(), "peakDb": f.describe()["peakDb"]} for f in all_feeds() if f.configured}})
         await asyncio.sleep(10)
         for feed in all_feeds():
             if feed._task and not feed._task.done() and time.time() - feed.last_used_at >= STOP_AFTER_IDLE_S:

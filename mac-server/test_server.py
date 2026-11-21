@@ -515,5 +515,74 @@ check("context: single-channel controllers as before", "Toledo Approach (feed id
 
 check("channels: one of several live", said("connect to Columbus", {**many(), "feeds": [f if f["id"] != "cmh-twr" else {**f, "status": "idle"} for f in MANY_FEEDS]}), "Yes, Columbus Approach has 1 of 2 channels live: North. Connecting.")
 
+# --- The written record of radio calls (radiolog.py), with made-up records in a scratch folder
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import radiolog as RL  # noqa: E402
+
+BASE = datetime(2026, 11, 21, 1, 0).timestamp()
+
+
+def call(minute, feed, facility, channel, tokens, text="...", seconds=4.0):
+    return {"type": "call", "ts": BASE + minute * 60, "feedId": feed, "facility": facility, "channel": channel, "text": text, "seconds": seconds, "callsignTokens": tokens}
+
+
+RECORDS = [
+    # An exchange on Detroit Tower: three calls within a minute.
+    call(0, "dtw-twr", "dtw-app", "Tower", ["DAL1830"], "Delta 1830, runway 22 left, cleared to land."), call(0.3, "dtw-twr", "dtw-app", "Tower", [], "Cleared to land, 1830."),
+    call(0.8, "dtw-twr", "dtw-app", "Tower", ["SWA407"], "Southwest 407, continue."),
+    call(10, "dtw-twr", "dtw-app", "Tower", ["DAL1830"], "Delta 1830, contact ground."),  # nine minutes later: another exchange
+    # One call transmitted on two channels at once, worded slightly differently by the transcription.
+    call(3, "dtw-dep-west", "dtw-app", "Departure West", [], "Detroit approach, it'll be the ILS, runway two three, they're advertising the field as IFR."),
+    call(3.03, "dtw-dep-east", "dtw-app", "Departure East", [], "carrier 707 Detroit approach, it'll be the ILS runway two three, they're advertising the field as IFR"),
+    call(65, "cmh-app-north", "cmh-app", "North", ["SWA3454"], "Southwest 3454, contact tower."), call(65.4, "cmh-app-north", "cmh-app", "North", ["SWA3454"], "Over to tower, Southwest 3454."),
+    call(70, "cmh-app-north", "cmh-app", "North", [], "Yes, sir."),
+    {"type": "status", "ts": BASE, "feeds": {"dtw-twr": {"status": "online", "peakDb": -69.0}, "zob-47": {"status": "online", "peakDb": None}, "cmh-twr": {"status": "idle", "peakDb": None}}},
+    {"type": "status", "ts": BASE + 300, "feeds": {"dtw-twr": {"status": "online", "peakDb": -70.0}, "zob-47": {"status": "offline", "peakDb": None}, "cmh-twr": {"status": "idle", "peakDb": None}}},
+]
+NAMES = {"dtw-twr": {"facility": "dtw-app", "channel": "Tower"}, "dtw-dep-east": {"facility": "dtw-app", "channel": "Departure East"}, "dtw-dep-west": {"facility": "dtw-app", "channel": "Departure West"},
+         "cmh-app-north": {"facility": "cmh-app", "channel": "North"}, "cmh-twr": {"facility": "cmh-app", "channel": "Tower"}, "zob-47": {"facility": "zob", "channel": "Bluffton High"}}
+S = RL.summary(RECORDS, NAMES)
+check("log: totals (the call on two channels counted once)", (S["calls"], S["repeats"], S["conversations"], S["aircraft"], S["speechSeconds"]), (8, 1, 5, 3, 32))
+check("log: per controller", [(g["facility"], g["calls"], g["conversations"], g["channelsHeard"], g["channels"]) for g in S["facilities"]],
+      [("dtw-app", 5, 3, 2, 3), ("cmh-app", 3, 2, 1, 2), ("zob", 0, 0, 0, 1)])
+tower = next(f for f in S["feeds"] if f["feedId"] == "dtw-twr")
+check("log: one channel", (tower["calls"], tower["conversations"], tower["aircraft"], tower["captured"], tower["heardSound"]), (4, 2, 2, 1.0, True))
+check("log: the repeat is credited to the channel it came on first", [(f["feedId"], f["calls"]) for f in S["feeds"] if f["feedId"].startswith("dtw-dep")], [("dtw-dep-west", 1), ("dtw-dep-east", 0)])
+check("log: an exchange lists the callsigns caught in it", RL.conversations(RL.distinct([r for r in RECORDS if r["type"] == "call"]))[0]["callsigns"], ["DAL1830", "SWA407"])
+check("log: different calls on two channels are both kept", len(RL.distinct([call(0, "a", "x", "A", [], "Delta 1830 descend and maintain four thousand"), call(0.02, "b", "x", "B", [], "Southwest 407 turn left heading two seven zero")])), 2)
+check("log: the same words on one channel twice are two calls", len(RL.distinct([call(0, "a", "x", "A", [], "Delta 1830 contact tower now"), call(0.05, "a", "x", "A", [], "Delta 1830 contact tower now")])), 2)
+check("log: a channel that stopped being captured", next(f for f in S["feeds"] if f["feedId"] == "zob-47")["captured"], 0.5)
+check("log: a channel never captured", next(f for f in S["feeds"] if f["feedId"] == "cmh-twr")["captured"], 0.0)
+check("log: by hour", S["byHour"], {"2026-11-21 01:00": 5, "2026-11-21 02:00": 3})
+check("log: busiest hour and most heard", (S["busiestHour"], S["mostHeard"][0]), ("2026-11-21 01:00", ("DAL1830", 2)))
+FAC = {"dtw-app": "Detroit Metro", "cmh-app": "Columbus", "zob": "Cleveland Center"}
+check("log: said", RL.spoken(S, 3, FAC), "In the last 3 hours I logged 8 calls in about 5 conversations, naming at least 3 different aircraft. Busiest: Detroit Metro with 5, then Columbus with 3. 3 channels had nothing.")
+check("log: said, one controller", RL.spoken(S, 8, FAC, "dtw-app"), "Detroit Metro in the last 8 hours: 5 calls in about 3 conversations, on 2 of its 3 channels. Busiest was Tower with 4.")
+check("log: said, a quiet controller", RL.spoken(S, 8, FAC, "zob"), "I logged nothing on Cleveland Center in the last 8 hours.")
+check("log: said, nothing at all", RL.spoken(RL.summary([], NAMES), 1), "I logged no calls in the last 1 hour.")
+check("log: said, no callsigns caught", RL.spoken(RL.summary([call(0, "a", "x", "A", [], "Yes, sir.")], {}), 2).startswith("In the last 2 hours I logged 1 call in about 1 conversation. Busiest"), True)
+with tempfile.TemporaryDirectory() as scratch:
+    folder = Path(scratch)
+    for r in RECORDS:
+        RL.write(r, folder)
+    with open(RL._path(BASE, folder), "a", encoding="utf-8") as f:
+        f.write('{"type": "call", "ts": 12')  # a line cut short by a crash
+    back = RL.read(BASE - 60, BASE + 7200, folder)
+    check("log: written and read back, the broken line skipped", (len(back), back[0]["ts"], back[-1]["ts"]), (11, BASE, BASE + 70 * 60))
+    check("log: only the stretch asked for", len(RL.read(BASE + 60 * 60, BASE + 7200, folder)), 3)
+check("log: off by default", RL.enabled, False)
+
+LOGQ = [
+    ("How busy was it overnight?", {"hours": 8.0, "facility": None}), ("how busy has Detroit been in the last three hours", {"hours": 3.0, "facility": "dtw-app"}),
+    ("How many calls were there in the last hour?", {"hours": 1.0, "facility": None}), ("how many conversations on Columbus overnight", {"hours": 8.0, "facility": "cmh-app"}),
+    ("radio summary", {"hours": 6.0, "facility": None}), ("give me the overnight report", {"hours": 8.0, "facility": None}),
+    ("how busy was it in the last 30 minutes", {"hours": 0.5, "facility": None}), ("how many calls today", {"hours": 9.5, "facility": None}),
+    ("how busy is the pattern", {"hours": 6.0, "facility": "1g0-ctaf"}), ("how busy was the cafeteria", None), ("how many seats does it have", None), ("next page", None),
+]
+for text, want in LOGQ:
+    check(f"log question: {text}", radiotalk.log_question(rules.normalize(text), many(), 9.5), want)
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

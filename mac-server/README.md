@@ -89,6 +89,10 @@ Nothing is recorded: each call is a temporary file deleted as soon as it is tran
 
 Looking at a controller's icon in the headset and saying "Can I access?" makes the phone play that feed: `GET /api/feeds/{id}/audio` is the audio this Mac is already receiving, re-encoded as an MP3 stream for the phone's player. It goes to your own phone only (over USB, or on Wi-Fi with the server token: the phone first gets a one-time ticket from `POST /api/feeds/{id}/listen`), and nothing is stored. Try it from the Mac: `curl -m 8 -o /tmp/feed.mp3 http://127.0.0.1:8787/api/feeds/tol-app/audio`.
 
+### Keeping a record
+
+Set `RADIO_LOG=on` in `.env` and every transcribed call is added to `logs/radio-YYYY-MM-DD.jsonl`, one line of JSON each (the text, when, which controller and channel, the callsigns found). Every five minutes a line records how each feed was doing. Text only: the audio is never kept, and the folder is not in git. `curl 'http://127.0.0.1:8787/api/radio/summary?hours=8'` gives the counts, and the assistant answers "how busy was Detroit overnight?" from the same record. For an overnight run: leave the Mac on power with the lid open (the server stops it sleeping by itself, not a closed lid on battery), and leave Chrome and the server running.
+
 ### Other kinds of feed
 
 `"kind": "stream"` with a `streamUrl` is for a plain web audio stream this Mac may connect to itself (your own receiver, for instance): one connection, only while the app is asking for calls, let go two minutes after it stops asking, a reconnect at most every 30 seconds.
@@ -135,6 +139,7 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `radio.py` | The feed and radio endpoints, including the live audio stream the phone plays |
 | `opensky.py` | When and where a plane really took off, from the OpenSky Network's free track of the flight |
 | `forecast.py` | Weather where you are and airport forecasts (aviationweather.gov), answered without Aivana |
+| `radiolog.py` | The optional written record of calls (`RADIO_LOG=on`) and its summary |
 | `radiotalk.py` | Radio voice commands answered without Aivana: "Can I access?", mute, transcript, "what did they just say?" |
 | `test_server.py` | `python3 test_server.py`: rules, speech, flight info and action checks. No network, no model |
 | `test_radio.py` | `python3 test_radio.py`: the radio parser and the call splitter |

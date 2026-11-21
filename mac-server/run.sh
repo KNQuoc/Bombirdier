@@ -18,4 +18,10 @@ if command -v adb >/dev/null 2>&1; then
   echo "USB link: keeping adb reverse tcp:$PORT up (plug the phone in any time)."
 fi
 
-.venv/bin/uvicorn main:app --host "${HOST:-127.0.0.1}" --port "$PORT"
+# Keep the Mac from going to sleep by itself while the server runs (a sleeping Mac captures and logs
+# nothing). The screen may still turn off, and closing the lid on battery still sleeps it.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -i .venv/bin/uvicorn main:app --host "${HOST:-127.0.0.1}" --port "$PORT"
+else
+  .venv/bin/uvicorn main:app --host "${HOST:-127.0.0.1}" --port "$PORT"
+fi

@@ -22,3 +22,6 @@ Thumbs.db
 
 # Voice samples generated while choosing a TTS voice
 mac-server/samples/
+
+# The written record of radio calls (RADIO_LOG=on): local only
+mac-server/logs/
