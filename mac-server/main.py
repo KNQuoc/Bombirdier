@@ -28,6 +28,7 @@ import asyncio
 import config
 import feeds
 import flightinfo
+import forecast
 import gpu
 import llm
 import radio
@@ -197,7 +198,7 @@ async def _ask_aivana(question: str, ctx: dict) -> dict:
     plane = flightinfo.subject(ctx)
     prog = flightinfo.progress(plane) if plane else None
     wx = await flightinfo.weather(plane, prog) if plane else {}
-    flight = "\n".join(flightinfo.context_lines(plane, prog, wx))
+    flight = "\n".join(flightinfo.context_lines(plane, prog, wx) + await forecast.context_lines(ctx))
     messages.append({"role": "user", "content": f"{context_text(ctx)}\n{flight}\n\nThe user said: {question}"})
     result = await llm.complete(messages, system=SYSTEM, schema=REPLY_SCHEMA)
     structured = result.get("structured") or {}
@@ -228,6 +229,12 @@ async def ask(req: AskRequest) -> dict:
     error = None
     # Arrival time, distance and weather questions about the plane you're looking at: answered here
     # from its position, its route and current weather reports. (Weather is a quick lookup, cached.)
+    # Weather here and the forecast ("will it rain this afternoon?", "what's the weather when it lands?"):
+    # official airport reports and forecasts, looked up directly (cached).
+    asked = None if reply else forecast.wants(rules.normalize(transcript))
+    if asked:
+        plane = flightinfo.subject(req.context)
+        reply = {"answer": await forecast.answer(asked[0], asked[1], req.context, plane, flightinfo.progress(plane) if plane else None), "actions": []}
     kind = None if reply else flightinfo.wants(rules.normalize(transcript))
     if kind:
         plane = flightinfo.subject(req.context)

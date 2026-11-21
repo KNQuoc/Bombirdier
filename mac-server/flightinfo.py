@@ -30,7 +30,7 @@ DEPARTURE_PAD_MIN = 8
 # Below this the plane is taxiing, hovering or the speed is junk: no arrival estimate.
 MIN_SPEED_KT = 60
 
-METAR_URL = "https://aviationweather.gov/api/data/metar"
+WEATHER_URL = "https://aviationweather.gov/api/data"
 METAR_TTL_S = 600
 WEATHER_TIMEOUT_S = 3.0
 # How far around the plane to look for a reporting station (degrees of latitude / longitude).
@@ -148,14 +148,15 @@ def describe_metar(m: dict) -> str:
     return f"{text}. {category.capitalize()}." if category else f"{text}."
 
 
-async def _get(query: str) -> list[dict]:
-    """`query` goes in the URL as written: the service wants its commas plain, not percent-encoded."""
+async def _get(query: str, kind: str = "metar") -> list[dict]:
+    """Current reports ("metar") or forecasts ("taf"). `query` goes in the URL as written: the
+    service wants its commas plain, not percent-encoded."""
     global _client
     import httpx  # here, not at the top: the tests run without the server's packages
 
     if _client is None:
         _client = httpx.AsyncClient(timeout=WEATHER_TIMEOUT_S, headers={"User-Agent": config.USER_AGENT})
-    r = await _client.get(f"{METAR_URL}?{query}&format=json")
+    r = await _client.get(f"{WEATHER_URL}/{kind}?{query}&format=json")
     if r.status_code != 200 or not r.text.strip():
         return []
     data = r.json()
@@ -241,7 +242,7 @@ _ROUTE = [
     rf"where(?: is| s|s) {_IT} from",
     rf"(?:whats|what is) (?:its|the|their) (?:route|destination|origin)",
 ]
-_WEATHER_DEST = r"(?:whats|what is|hows|how is|what about) the weather (?:like )?(?:at|in) (?:its|the|their) destination|(?:whats|what is|hows|how is) the weather (?:like )?(?:where (?:its|it is|theyre|they are) (?:going|landing|headed|heading)|there)|(?:whats|what is|hows|how is) the weather (?:like )?(?:going to be )?when (?:it|they) (?:lands?|arrives?|gets? there)"
+_WEATHER_DEST = r"(?:whats|what is|hows|how is|what about) the weather (?:like )?(?:at|in) (?:its|the|their) destination|(?:whats|what is|hows|how is) the weather (?:like )?(?:where (?:its|it is|theyre|they are) (?:going|landing|headed|heading)|there)"
 _WEATHER_BELOW = r"(?:whats|what is|hows|how is) the weather (?:like )?(?:where (?:it|that plane) is|below (?:it|that plane)|under (?:it|that plane)|around (?:it|that plane)|along (?:the|its) (?:way|route)|en ?route|up there)(?: right now| now)?"
 _WEATHER_ORIGIN = r"(?:whats|what is|hows|how is|what was|how was) the weather (?:like )?(?:where (?:it|they) (?:came|come|took off|departed|left) from|at (?:its|the|their) origin|at (?:its|the|their) departure(?: airport)?)"
 

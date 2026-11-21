@@ -115,6 +115,8 @@ Retry only 429, 502, 504 and network failures, a few times, with backoff. For a 
 
 A searched request cost about 0.006 credits against 0.0004 without (roughly 15 times: every token of the search is charged, about 2,500 input tokens each).
 
+**Reading one given page** (asked 2026-11-21: "can it search a specific website and bring back its JSON or HTML?"): not in these tests. Given an exact address and told to return what it holds, with `web_search: true`, it answered "I could not open the exact URL" for a JSON address and for an ordinary Wikipedia page, and returned nothing for a plain-text address. The trace showed no source used and no search made. And where a site does offer JSON, the Mac can fetch it itself in a fraction of a second for nothing, which is what `flightinfo.py` and `forecast.py` do.
+
 **What this means for Bombirdier:** not a source for departure or arrival times of the plane you are looking at (it finds the route and a published schedule, then guesses the wrong day's flight), and worse than what is already built for weather (`flightinfo.py` gets the current METAR straight from aviationweather.gov in under a second). It is usable for look-it-up questions where a few seconds and an approximate answer are fine.
 
 ## Open questions to settle with a real key

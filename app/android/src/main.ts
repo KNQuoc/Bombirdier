@@ -366,6 +366,8 @@ function voiceContext() {
     traffic: { total: all.length, radiusNm: WIDE_RADIUS_NM },
     // How far out planes get icons on the bar and brackets in the sky ("set the range to 75").
     arRadiusKm: traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM,
+    // Roughly where you are (to about a kilometer), for the weather and the forecast nearest you.
+    viewer: viewer ? { lat: Math.round(viewer.lat * 100) / 100, lon: Math.round(viewer.lon * 100) / 100 } : null,
     list: listView
       ? {
           open: true,

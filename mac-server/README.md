@@ -130,6 +130,7 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `splitter.py` | Cuts a continuous audio stream into individual calls |
 | `radio_parse.py` | Callsigns and position reports out of a transcribed call |
 | `radio.py` | The feed and radio endpoints, including the live audio stream the phone plays |
+| `forecast.py` | Weather where you are and airport forecasts (aviationweather.gov), answered without Aivana |
 | `radiotalk.py` | Radio voice commands answered without Aivana: "Can I access?", mute, transcript, "what did they just say?" |
 | `test_server.py` | `python3 test_server.py`: rules, speech, flight info and action checks. No network, no model |
 | `test_radio.py` | `python3 test_radio.py`: the radio parser and the call splitter |

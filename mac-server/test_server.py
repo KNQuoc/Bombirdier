@@ -140,7 +140,6 @@ for said, kind in [
     ("When did it take off?", "departed"), ("How long has it been flying?", "departed"),
     ("Where is it going?", "route"), ("Where did that plane come from?", "route"), ("Where's it headed?", "route"),
     ("What's the weather at its destination?", "weather_destination"), ("How's the weather where it's going?", "weather_destination"),
-    ("What's the weather like when it lands?", "weather_destination"),
     ("What's the weather where it is right now?", "weather_below"), ("How is the weather along the way?", "weather_below"),
     ("What was the weather where it came from?", "weather_origin"),
     ("How many seats does it have?", None), ("When was the A321 first built?", None), ("What's the weather in Paris?", None), ("Next page", None),
@@ -282,6 +281,121 @@ check("range: asking", rules.quick("what's the range", {**CTX, "arRadiusKm": 75}
 check("range: not the radar zoom", actions("zoom the radar to 20 miles"), [{"type": "radar_range", "nm": 20}])
 check("range: nonsense goes to Aivana", rules.quick("set the range to something bigger", CTX), None)
 check("range action passes validation", tools.validate_actions([{"type": "ar_range", "km": 75}]), [{"type": "ar_range", "km": 75}])
+
+# --- Weather here and the forecast (forecast.py), with a made-up forecast: no network
+import asyncio  # noqa: E402
+import forecast as W  # noqa: E402
+
+NOW = datetime(2026, 11, 21, 9, 0)
+
+
+def ts(hour, day=21):
+    return datetime(2026, 11, day, hour % 24).timestamp() + (86400 if hour >= 24 else 0)
+
+
+def period(start, end, change=None, **kw):
+    base = {"timeFrom": ts(start), "timeTo": ts(end), "timeBec": None, "fcstChange": change, "probability": None, "wdir": None, "wspd": None,
+            "wgst": None, "visib": None, "vertVis": None, "wxString": None, "clouds": []}
+    return {**base, **kw}
+
+
+TAF = {
+    "icaoId": "KTOL", "name": "Toledo/Express Arpt", "lat": 41.587, "lon": -83.805, "validTimeFrom": ts(6), "validTimeTo": ts(30), "rawTAF": "TAF KTOL ...",
+    "fcsts": [
+        period(6, 13, wdir="VRB", wspd=3, visib="6+", clouds=[{"cover": "FEW", "base": 25000}]),
+        period(13, 20, "FM", wdir=190, wspd=8, visib="6+", clouds=[{"cover": "SCT", "base": 5000}]),
+        period(15, 18, "TEMPO", visib=4, wxString="-SHRA", clouds=[{"cover": "BKN", "base": 2500}]),
+        period(20, 30, "FM", wdir=220, wspd=12, wgst=22, visib=3, wxString="-RA BR", clouds=[{"cover": "OVC", "base": 900}]),
+        period(22, 26, "PROB", probability=30, visib=1, wxString="TSRA"),
+    ],
+}
+check("forecast: category", [W.category(f) for f in TAF["fcsts"]], ["VFR", "VFR", "MVFR", "IFR", "IFR"])
+check("forecast: times", [W.hour(ts(13), NOW), W.hour(ts(12), NOW), W.hour(ts(24), NOW), W.hour(ts(30), NOW)], ["1 PM", "noon", "midnight", "tomorrow at 6 AM"])
+check("forecast: summary", W.summary(TAF, NOW, 12),
+      "Until 1 PM: wind variable at 3 knots, visibility more than 6 miles, a few clouds at 25,000 feet. "
+      "From 1 PM: wind from the south at 8 knots, visibility more than 6 miles, scattered clouds at 5,000 feet. "
+      "From 8 PM: wind from the southwest at 12 knots, gusting 22, visibility 3 miles, light rain, mist, overcast at 900 feet. Instrument conditions. "
+      "At times between 3 PM and 6 PM: light rain showers, visibility 4 miles, broken clouds at 2,500 feet.")
+check("forecast: one period", W.summary(TAF, NOW, 3), "Through noon: wind variable at 3 knots, visibility more than 6 miles, a few clouds at 25,000 feet.")
+
+
+def rain(text, now=NOW):
+    start, end, label = W.window(text, now)
+    codes, noun = W._asked_for(text)
+    return W.precipitation(TAF, now, start, end, label, codes, noun)
+
+
+check("rain: this morning, none", rain("will it rain this morning"), "No rain in the Toledo forecast this morning.")
+check("rain: this afternoon, at times", rain("will it rain this afternoon"), "At times, yes: light rain showers between 3 PM and 6 PM, in the Toledo forecast.")
+check("rain: tonight", rain("is it going to rain tonight"), "Yes: light rain, mist from about 8 PM, in the Toledo forecast.")
+check("snow: none", rain("will it snow tonight"), "No snow in the Toledo forecast tonight.")
+check("storms: a chance", rain("any thunderstorms tonight"), "Maybe: a 30 percent chance of thunderstorms and rain between 10 PM and tomorrow at 2 AM, in the Toledo forecast.")
+check("rain: default is the next 12 hours", rain("will it rain"), "At times, yes: light rain showers between 3 PM and 6 PM, in the Toledo forecast.")
+check("rain: beyond the forecast", rain("will it rain tomorrow afternoon"), "The Toledo forecast only runs until tomorrow at 6 AM, so I can't say for tomorrow afternoon.")
+check("window: this afternoon asked in the evening falls back", W.window("will it rain this afternoon", datetime(2026, 11, 21, 20, 0))[2], "in the next 12 hours")
+check("window: next few hours", W.window("any rain in the next few hours", NOW)[2], "in the next 3 hours")
+
+
+def fly(text):
+    start, end, label = W.window(text, NOW)
+    return W.flying(TAF, NOW, start, end, label)
+
+
+check("flying: this morning", fly("will it stay vfr this morning"), "The Toledo forecast is visual conditions this morning. Check the official briefing before you fly.")
+check("flying: this afternoon dips", fly("is it going to stay vfr this afternoon"),
+      "The Toledo forecast is visual conditions this afternoon, dropping at times between 3 PM and 6 PM: light rain showers, visibility 4 miles, broken clouds at 2,500 feet. Check the official briefing before you fly.")
+check("flying: goes down tonight", fly("is the weather going to hold"),
+      "Visual conditions until 8 PM, then instrument conditions: light rain, mist, visibility 3 miles, overcast at 900 feet, gusts to 22 knots, in the Toledo forecast. Check the official briefing before you fly.")
+check("forecast at a time", W.describe_period(W.at_time(TAF, ts(14))), "wind from the south at 8 knots, visibility more than 6 miles, scattered clouds at 5,000 feet.")
+
+BECOMING = {"name": "Findlay Arpt", "validTimeTo": ts(30), "fcsts": [
+    period(6, 30, wdir=270, wspd=10, visib="6+", clouds=[{"cover": "OVC", "base": 4000}]),
+    {**period(14, 30, "BECMG", clouds=[{"cover": "SCT", "base": 4000}]), "timeBec": ts(16)},
+]}
+check("becoming: only what changes, from when it's done", W.summary(BECOMING, NOW, 12),
+      "Until 4 PM: wind from the west at 10 knots, visibility more than 6 miles, overcast at 4,000 feet. "
+      "From 4 PM: wind from the west at 10 knots, visibility more than 6 miles, scattered clouds at 4,000 feet.")
+
+for text, kind in [
+    ("What's the weather?", "here"), ("How's the weather here right now?", "here"), ("What are the winds doing?", "here"), ("What's the ceiling?", "here"),
+    ("What's the forecast?", "forecast"), ("What's the forecast for tonight?", "forecast"), ("What's the weather going to be like this afternoon?", "forecast"),
+    ("What's the weather like tomorrow?", "forecast"), ("Forecast", "forecast"),
+    ("Will it rain?", "precip"), ("Is it going to snow tonight?", "precip"), ("Any rain coming?", "precip"), ("Any storms in the forecast this afternoon?", "precip"),
+    ("Will it stay VFR this afternoon?", "flying"), ("Is the weather going to hold?", "flying"), ("Can we fly this afternoon?", "flying"),
+    ("What's the weather like when it lands?", "arrival"), ("What's the forecast at its destination?", "arrival"),
+    ("What's the weather at its destination?", None), ("When does it land?", None), ("What's that plane?", None), ("Show me the list", None),
+]:
+    got = W.wants(rules.normalize(text))
+    check(f"weather question: {text}", got[0] if got else None, kind)
+check("weather at its destination stays a current-report question", F.wants(rules.normalize("What's the weather at its destination?")), "weather_destination")
+
+
+async def _weather_answers():
+    METAR = {"icaoId": "KTDZ", "name": "Toledo/Metcalf Fld", "lat": 41.56, "lon": -83.48, "distanceNm": 12.2, "wdir": 130, "wspd": 3, "visib": 5, "wxString": "BR",
+             "clouds": [{"cover": "CLR"}], "temp": 3, "fltCat": "MVFR"}
+
+    async def fake_nearest(kind, lat, lon):
+        return {**TAF, "distanceNm": 14.1} if kind == "taf" else METAR
+
+    async def fake_airport(icao):
+        return TAF if icao == "KSFO" else None
+
+    W.nearest, W.for_airport = fake_nearest, fake_airport
+    check("answer: weather here", await W.answer("here", "whats the weather", {}, now=NOW),
+          "The nearest weather station is Toledo, 12 miles away. Toledo right now: wind from the southeast at 3 knots, visibility 5 miles, mist, clear skies, 3 degrees Celsius. Marginal.")
+    check("answer: forecast starts with the station", (await W.answer("forecast", "whats the forecast", {}, now=NOW)).startswith("The nearest forecast is Toledo, 14 miles away. Toledo forecast. Until 1 PM: wind variable"), True)
+    check("answer: forecast for tonight", (await W.answer("forecast", "whats the forecast for tonight", {}, now=NOW)).startswith("The nearest forecast is Toledo, 14 miles away. Toledo forecast for tonight. Until 8 PM: wind from the south"), True)
+    check("answer: rain", await W.answer("precip", "will it rain this afternoon", {}, now=NOW), "At times, yes: light rain showers between 3 PM and 6 PM, in the Toledo forecast.")
+    prog = F.progress(AAL, now=datetime(2026, 11, 21, 9, 0))
+    prog["eta"] = datetime(2026, 11, 21, 14, 30)
+    check("answer: when it lands", await W.answer("arrival", "", {}, AAL, prog, now=NOW),
+          "When it gets to San Francisco, around 2:30 PM your time by my estimate, the forecast is: wind from the south at 8 knots, visibility more than 6 miles, scattered clouds at 5,000 feet.")
+    check("answer: when it lands, no plane", (await W.answer("arrival", "", {}, None, None, now=NOW)).startswith("I don't see a plane"), True)
+    lines = await W.context_lines({}, now=NOW)
+    check("context: weather and forecast lines", [l.split(":")[0] for l in lines], ["Weather near the user now (Toledo, 12 miles away)", "Forecast (Toledo, 14 miles away; official airport forecast)"])
+
+
+asyncio.run(_weather_answers())
 
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)
