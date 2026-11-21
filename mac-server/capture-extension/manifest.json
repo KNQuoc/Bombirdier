@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Bombirdier radio capture",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Opens your radio feeds' player tabs and hands their sound to the Bombirdier capture page on this Mac, without Chrome's sharing bars.",
   "minimum_chrome_version": "127",
-  "permissions": ["tabCapture", "activeTab", "storage"],
+  "permissions": ["tabCapture", "activeTab", "storage", "scripting"],
   "host_permissions": ["http://localhost:8787/*", "https://www.liveatc.net/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [{ "matches": ["http://localhost:8787/capture*"], "js": ["relay.js"], "run_at": "document_idle" }],

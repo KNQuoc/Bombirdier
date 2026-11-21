@@ -4,6 +4,11 @@
 // (Chrome puts a permission prompt in front of an extension's requests to a local server, and a
 // page of the server's own doesn't need one.)
 
+// It can arrive twice (once from Chrome when the page loads, once from the extension when it finds
+// nobody answering): only the first copy listens.
+if (!globalThis.__bombirdierRelay) {
+globalThis.__bombirdierRelay = true;
+
 let nextId = 1;
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -25,3 +30,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   setTimeout(() => finish(null), 8000);
   return true; // the answer comes later
 });
+
+}

@@ -13,7 +13,7 @@ Without the extension, the capture page uses Chrome's screen-sharing, and Chrome
 
 ## Use
 
-1. Start the server (`mac-server/run.sh`) and open <http://localhost:8787/capture> in a tab. If that page was open before you installed or updated the extension, reload it once.
+1. Start the server (`mac-server/run.sh`) and open <http://localhost:8787/capture> in a tab. 
 2. Click the extension's toolbar button (on any tab that isn't a player) and press **Open all feeds**. It opens each feed's player tab in the background. Check each player says "playing"; if Chrome held one back, press Play on it.
 3. Go to each player tab and **click the toolbar button once**, or press **Option+Shift+C**. On a player tab that captures it straight away, with no popup: the button gets a green "ON".
 
@@ -23,7 +23,7 @@ The popup (from any other tab, or from a tab that is already captured) lists eve
 
 A tab captured this way is silent on the Mac's speakers. To keep hearing feeds, tick the box at the top of the capture page before capturing.
 
-After changing the extension's files, press the reload arrow on its card in `chrome://extensions`.
+After changing the extension's files, press the reload arrow on its card in `chrome://extensions`. The capture page does not need reloading for that: when the extension finds nobody answering in the page, it puts its relay script back in itself.
 
 ## How it works
 
@@ -36,4 +36,4 @@ If the server runs on another port, change `8787` in `manifest.json` and `lib.js
 
 ## Status
 
-Checked: the extension loads in Chrome 149, its background script runs, it recognizes player tabs, the popup renders its list, and Chrome hands it a tab's audio id; the capture page's side (taking audio from the extension, level, stop) with a stand-in audio stream. **Not yet checked: the whole thing together in a real Chrome**, including whether players opened in the background start playing by themselves.
+Checked: the extension loads in Chrome 149, it reaches the real capture page and gets its feed list back (including after an extension reload, when Chrome has cut the link), its background script runs, it recognizes player tabs, the popup renders its list, and Chrome hands it a tab's audio id; the capture page's side (taking audio from the extension, level, stop) with a stand-in audio stream. **Not yet checked: the whole thing together in a real Chrome**, including whether players opened in the background start playing by themselves.

@@ -10,14 +10,31 @@ async function findCapturePage() {
   return found[0] ?? null;
 }
 
-/** Asks the capture page something (through relay.js). null = it isn't there, or didn't answer. */
+/**
+ * Asks the capture page something (through relay.js). null = it isn't there, or didn't answer.
+ *
+ * Chrome only puts relay.js into the page when the page loads, and cuts it off whenever the
+ * extension is reloaded or updated. So if nobody answers, relay.js is put in again from here and
+ * the question asked once more: the page never has to be reloaded for the extension's sake.
+ */
 async function askPage(page, message) {
   if (!page) return null;
-  try {
-    return (await chrome.tabs.sendMessage(page.id, message)) ?? null;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const reply = await chrome.tabs.sendMessage(page.id, message);
+      if (reply != null) return reply;
+    } catch {
+      // Nobody listening in that tab.
+    }
+    if (attempt === 0) {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: page.id }, files: ['relay.js'] });
+      } catch {
+        return null; // the tab is gone, still loading, or not ours to script
+      }
+    }
   }
+  return null;
 }
 
 const sameAddress = (a, b) => !!a && !!b && a.split('#')[0].replace(/\/$/, '') === b.split('#')[0].replace(/\/$/, '');
@@ -43,4 +60,4 @@ async function captureTab(tab, feed, page) {
   if (!started?.ok) throw new Error(started?.error || 'the capture page did not answer (reload it and try again)');
 }
 
-const NO_PAGE = 'The capture page is not answering. Open http://localhost:8787/capture in a tab, or reload it if it is already open (it has to be loaded after this extension was installed or updated). If it will not load, start the server with mac-server/run.sh.';
+const NO_PAGE = 'The capture page is not answering. Open http://localhost:8787/capture in a tab (or reload it if it is open). If it will not load, start the server with mac-server/run.sh.';
