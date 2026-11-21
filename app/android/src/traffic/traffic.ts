@@ -5,6 +5,7 @@
 
 import type { LatLon, Plane } from '@web/planes';
 import { startLiveFeed } from '../flights/feed';
+import { problemText } from '../flights/adsb';
 import type { NearFeed } from '../flights/feed';
 import { DEFAULT_RADIUS_KM, KM_PER_NM, WIDE_RADIUS_NM } from '../flights/nearby';
 import { startWideFeed } from './wide';
@@ -31,7 +32,7 @@ export function startTraffic(opts: {
 }): Traffic {
   let arRadiusKm = opts.arRadiusKm ?? DEFAULT_RADIUS_KM;
   const near = startLiveFeed({ radiusKm: arRadiusKm, getPosition: opts.getPosition });
-  const wide = startWideFeed({ mode: opts.wideMode, getPosition: opts.getPosition, nearThrottled: near.throttled });
+  const wide = startWideFeed({ mode: opts.wideMode, getPosition: opts.getPosition, nearThrottled: near.throttled, nearProblem: () => problemText(near.problem()) });
 
   return {
     near,

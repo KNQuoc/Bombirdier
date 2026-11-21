@@ -97,8 +97,16 @@ const lastGood = new Map<number, PointData>();
 
 export type PointResult = PointData & {
   /** null = fresh data; otherwise why cached/last-good data was returned. fetchedAt says how old it is. */
-  problem: null | 'rate-limited' | 'unreachable';
+  problem: null | 'rate-limited' | 'unreachable' | 'sign-in';
 };
+
+/** A fetch problem in a few words, for the status lines. */
+export function problemText(problem: PointResult['problem'] | 'slow'): string {
+  if (problem === 'sign-in') return 'Wi-Fi needs sign-in';
+  if (problem === 'rate-limited') return 'rate limited';
+  if (problem === 'unreachable') return 'no traffic source reachable';
+  return problem === 'slow' ? 'slow answers' : '';
+}
 
 async function request(url: string, init: RequestInit = {}): Promise<Response> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -111,6 +119,36 @@ async function request(url: string, init: RequestInit = {}): Promise<Response> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Is this Wi-Fi waiting for a sign-in page (a campus or hotel guest network)? Such a network
+ * answers every https request with its own login page's certificate, so every fetch just fails:
+ * seen on BGSU-Guest on 2026-11-21, where it looked like a rate limit. The check is the one Android
+ * itself uses: a plain http address that answers 204 and nothing else; a sign-in network answers
+ * with its login page instead. null = no answer at all (no internet). Asked only when every traffic
+ * source has just failed, and at most every 20 s.
+ */
+const SIGN_IN_CHECK_URL = 'http://connectivitycheck.gstatic.com/generate_204';
+const SIGN_IN_CHECK_EVERY_MS = 20_000;
+const SIGN_IN_CHECK_TIMEOUT_MS = 5000;
+let signInCheck: { at: number; needed: boolean | null } | null = null;
+
+async function wifiNeedsSignIn(): Promise<boolean | null> {
+  if (!IS_NATIVE) return null; // a desktop browser may not fetch that address (CORS)
+  if (signInCheck && Date.now() - signInCheck.at < SIGN_IN_CHECK_EVERY_MS) return signInCheck.needed;
+  let needed: boolean | null = null;
+  try {
+    const r = await Promise.race([
+      fetch(SIGN_IN_CHECK_URL, { cache: 'no-store' }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), SIGN_IN_CHECK_TIMEOUT_MS)),
+    ]);
+    needed = r.status !== 204;
+  } catch {
+    needed = null;
+  }
+  signInCheck = { at: Date.now(), needed };
+  return needed;
 }
 
 function retryAfterMs(r: Response): number {
@@ -144,6 +182,7 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
   if (cached) return { ...cached, problem: null };
   const fallback = pointCache.getStale(key) ?? lastGood.get(nm) ?? { ac: [], fetchedAt: Date.now(), bytes: 0 };
   let problem: PointResult['problem'] = 'unreachable';
+  let failed = 0;
   for (const source of SOURCES) {
     if (Date.now() < source.cooldownUntil) {
       problem = 'rate-limited';
@@ -168,9 +207,12 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
       lastSource = source.name;
       return { ...data, problem: null };
     } catch (e) {
+      failed++;
       console.warn(`${source.name} point fetch failed:`, e);
     }
   }
+  // Nothing answered at all: say so if the reason is a Wi-Fi sign-in page.
+  if (failed === SOURCES.length && (await wifiNeedsSignIn())) problem = 'sign-in';
   return { ...fallback, problem };
 }
 

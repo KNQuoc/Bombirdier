@@ -36,7 +36,7 @@ import { WOOD_COUNTY } from './airports/1g0';
 import { mslFtToEllipsoidM, runwayEnd } from './airports/airport';
 import { AUTO_RUNWAY, loadAppSettings, saveAppSettings } from './app-settings';
 import type { AppSettings } from './app-settings';
-import { cachedRoute, cachedRouteInfo, hasNoRoute, lookupRoutes } from './flights/adsb';
+import { cachedRoute, cachedRouteInfo, hasNoRoute, lookupRoutes, problemText } from './flights/adsb';
 import { createDepartures } from './departures/departures';
 import type { AirfieldKind } from './airports/lookup';
 import { haversineKm } from './flights/geo';
@@ -695,7 +695,14 @@ function frame() {
   } else if (!planes.length && feedState?.status.startsWith('live')) {
     const fartherOut = traffic?.all().length ?? 0;
     const within = `No planes within ${Math.round(traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM)} km`;
-    hud.emptyText = fartherOut ? `${within} · ${fartherOut} farther out are in the list ☰` : `${within} · ${feedState.status}`;
+    // No answer from the traffic sources is the first thing to say: otherwise it reads as an empty sky.
+    const trouble = traffic?.near.problem();
+    hud.emptyText =
+      trouble && trouble !== 'slow'
+        ? `No plane data: ${problemText(trouble)}`
+        : fartherOut
+          ? `${within} · ${fartherOut} farther out are in the list ☰`
+          : `${within} · ${feedState.status}`;
   }
   // Looking straight at the plane you opened: the panel steps aside (it would sit on top of the
   // plane) and the regular card under its bracket takes over until you look away.

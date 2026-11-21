@@ -6,7 +6,8 @@ import type { Plane } from '@web/planes';
 import type { FeedState, LatLon, PlaneFeed } from '@web/planes';
 import { toRad } from '@web/geo';
 import { bearingDeg, haversineKm } from './geo';
-import { trafficSource } from './adsb';
+import { problemText, trafficSource } from './adsb';
+import type { PointResult } from './adsb';
 import { livePlanes } from './nearby';
 
 /**
@@ -80,6 +81,8 @@ export function extrapolate(planes: Plane[], fetchedAt: number, now: number, vie
 export type NearFeed = PlaneFeed & {
   /** True if the latest poll was rate-limited, failed or slow. */
   throttled: () => boolean;
+  /** What was wrong with the latest poll, or null: the wide poller reports the same reason. */
+  problem: () => PointResult['problem'] | 'slow';
   /** Changes how far out planes are asked for, and asks again right away. null = the default. */
   setRadius: (radiusKm: number | null) => void;
 };
@@ -99,6 +102,7 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
   let computedAt = 0;
   let interval = MIN_POLL_MS;
   let lastThrottled = false;
+  let lastProblem: PointResult['problem'] | 'slow' = null;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -118,15 +122,13 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
     computedAt = 0; // recompute on the next get()
     const throttled = problem != null || Date.now() - startedAt > SLOW_ANSWER_MS;
     lastThrottled = throttled;
+    lastProblem = problem ?? (throttled ? 'slow' : null);
     const fastest = (radiusKm ?? 0) > BIG_RADIUS_KM ? BIG_RADIUS_MIN_POLL_MS : MIN_POLL_MS;
     interval = throttled ? Math.min(MAX_POLL_MS, interval * 1.5) : Math.max(fastest, interval - 1000);
     const age = Math.round((Date.now() - fetchedAt) / 1000);
-    status =
-      problem === 'rate-limited'
-        ? `live · rate limited by both sources · ${planes.length} cached (${age} s old)`
-        : problem === 'unreachable'
-          ? `live · no traffic source reachable · ${planes.length} cached (${age} s old)`
-          : `live${trafficSource() === 'adsb.lol' ? '' : ` (${trafficSource()})`} · ${planes.length} planes`;
+    status = problem
+      ? `live · ${problem === 'rate-limited' ? 'rate limited by both sources' : problemText(problem)} · ${planes.length} cached (${age} s old)`
+      : `live${trafficSource() === 'adsb.lol' ? '' : ` (${trafficSource()})`} · ${planes.length} planes`;
     status += ` · every ${Math.round(interval / 1000)} s`;
     timer = setTimeout(poll, interval);
   }
@@ -143,6 +145,7 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
       return current;
     },
     throttled: () => lastThrottled,
+    problem: () => lastProblem,
     setRadius: (km) => {
       if (km === radiusKm || stopped) return;
       radiusKm = km;

@@ -4,6 +4,7 @@
 import type { LatLon, Plane } from '@web/planes';
 import { extrapolate } from '../flights/feed';
 import { widePlanes } from '../flights/nearby';
+import { problemText } from '../flights/adsb';
 import { onWifi } from './network';
 
 export type WideMode = 'on' | 'wifi' | 'off';
@@ -39,6 +40,8 @@ export function startWideFeed(opts: {
   mode: WideMode;
   getPosition: () => LatLon | null;
   nearThrottled: () => boolean;
+  /** Why the AR feed is throttled, in a few words ('' = no reason known). */
+  nearProblem?: () => string;
 }): WideFeed {
   let polled: { planes: Plane[]; fetchedAt: number; at: LatLon; bytes: number } | null = null;
   let note = opts.mode === 'off' ? 'wide traffic off' : 'loading';
@@ -61,7 +64,7 @@ export function startWideFeed(opts: {
       return again(RETRY_MS);
     }
     if (opts.nearThrottled()) {
-      note = 'rate limited';
+      note = opts.nearProblem?.() || 'rate limited';
       return again(RETRY_MS);
     }
     const { planes, problem, fetchedAt, bytes } = await widePlanes(pos.lat, pos.lon);
@@ -69,7 +72,7 @@ export function startWideFeed(opts: {
     // On a failure widePlanes returns the last good wide data (or nothing): keep whichever is newer.
     if (planes.length || !polled) polled = { planes, fetchedAt, at: pos, bytes };
     cache = null;
-    note = problem === 'rate-limited' ? 'rate limited' : problem === 'unreachable' ? 'no traffic source reachable' : '';
+    note = problemText(problem);
     again(problem ? RETRY_MS * 2 : WIDE_POLL_MS);
   }
 
