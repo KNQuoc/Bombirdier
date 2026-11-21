@@ -63,10 +63,10 @@ The server can listen to a live ATC feed, cut it into individual calls, transcri
 Set a feed up in `feeds.json`:
 
 ```json
-{ "id": "tol-app", "kind": "liveatc", "name": "Toledo Approach", "freqs": ["126.1", "134.35"], "streamUrl": "" }
+{ "id": "1g0-ctaf", "kind": "liveatc", "name": "Wood County CTAF", "freqs": ["122.975"], "streamUrl": "" }
 ```
 
-`streamUrl` is empty on purpose: paste the stream address in yourself. On liveatc.net, find the feed (KTOL for Toledo), use its "listen" link, which downloads a small `.pls` file, and copy the address from the `File1=` line. Restart the server afterwards.
+`streamUrl` is empty on purpose. LiveATC lists two feeds for this area (checked 2026-11-21): **1G0 CTAF** (Wood County, 122.975) and **KTOL Del/Gnd/Twr/App** (Toledo Approach 126.1 and 134.35 mixed with Tower, Ground and Clearance). Its pages used to offer a "listen" link that downloaded a `.pls` file with the stream address in it; they now offer only an in-browser player, and say streams may not be used in third-party products. Whether and how to get an address is the owner's decision, not something this code does. Restart the server after changing `feeds.json`.
 
 LiveATC's terms don't allow third-party use of its streams. This is for private, personal listening, and the server behaves accordingly: one connection per feed, only while the app is open and asking for calls (it lets go two minutes after the app stops asking), a reconnect at most every 30 seconds, an honest User-Agent, nothing recorded (each call is a temporary file deleted as soon as it's transcribed), nothing re-shared.
 

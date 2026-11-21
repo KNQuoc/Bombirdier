@@ -84,7 +84,10 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 4: radio-call linking (LiveATC)
 
-- [ ] `mac-server/feeds.json`: **Kien pastes the KTOL `streamUrl` by hand** (the file is there with it empty; until then the feed shows as not set up and nothing connects)
+- [ ] `mac-server/feeds.json`: stream addresses still empty, so nothing connects. What LiveATC has (checked 2026-11-21):
+  - **1G0 CTAF**, Wood County 122.975: exists and was up. The plan assumed LiveATC didn't cover it. This is the feed that matters most: BGSU pattern calls
+  - **KTOL Del/Gnd/Twr/App**: one feed mixing Approach East 126.1 and West 134.35, Tower 118.1, Ground and Clearance
+  - Neither has a downloadable `.pls` link any more, only LiveATC's in-browser player, and both pages say streams may not be used in third-party products. How to get the audio is Kien's decision (pending)
 - [x] Feed worker: ffmpeg decode → call splitting (`splitter.py`) → Whisper with a radio prompt → parse → ring buffer of 200; one connection per feed, started by the phone asking for calls, stopped 2 min after it last asked, reconnect at most every 30 s
 - [x] Feed health: `GET /api/feeds`, `POST /api/feeds/{id}/check`
 - [x] `POST /api/radio/context` (callsigns around, said the radio way, go into Whisper's prompt)

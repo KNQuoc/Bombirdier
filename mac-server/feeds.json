@@ -1,5 +1,12 @@
 [
   {
+    "id": "1g0-ctaf",
+    "kind": "liveatc",
+    "name": "Wood County CTAF",
+    "freqs": ["122.975"],
+    "streamUrl": ""
+  },
+  {
     "id": "tol-app",
     "kind": "liveatc",
     "name": "Toledo Approach",
