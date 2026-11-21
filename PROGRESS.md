@@ -116,6 +116,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Separate audio/transcript switches, remembered per feed for the session
 - [x] Done on the Pixel: connecting plays the feed in 0.5 s (audible, confirmed by Kien); mute, unmute, hide transcript, louder and disconnect work
 - [ ] Looking at a controller icon in the headset to focus it: not tried
+- [x] One icon per controller with its frequencies as channels (Detroit, Cleveland Center, Columbus); combined or single-channel transcript; channel picked by voice
+- [ ] Combined transcript with two or more of a controller's channels live at once: not yet seen live
 - [ ] Sector guesses for Detroit and Cleveland Center are from sector names; check against what is actually heard
 
 ## Phase 6: stretch goals
@@ -133,6 +135,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 5 · One controller, several channels (asked for by Kien: "jam all of Detroit within one controller icon", and the same for Columbus and Cleveland). Feeds are grouped under their controller in `feeds.json`; 16 feeds now: Detroit Metro 5 (Arrival West and East, Departure East and West, Tower), Cleveland Center 5 sectors, Columbus 4, Toledo 1, Wood County 1. One icon each, the card lists the channels, "Can I access?" plays one and shows all of them in one transcript, and a channel can be picked or switched by voice. Checked in the desktop preview on the live feeds (one channel live per controller, so the combined transcript of several live channels is covered by tests only). 32 app tests, 275 server checks.
 - 2026-11-21 · traffic · Empty sky on the phone ("rate limited · 0 cached"): adsb.lol was refusing requests after a night of app restarts, the desktop preview and test requests all from one address, and a freshly started app has nothing cached. The app now falls back to a second open source, adsb.fi, when adsb.lol refuses or fails. Planes were back on the phone after the new build (64 known); whether that answer came from adsb.fi or from adsb.lol relenting was not checked. Head-tilt to talk confirmed working by Kien.
 - 2026-11-21 · phase 6 · X-Plane mode skipped for now at Kien's call. What remains across all phases needs the field, daylight or the headset rather than more code (see the open boxes above).
 - 2026-11-21 · phase 6 · Two stretch goals. **Filters in the sky**: "only show helicopters in the sky" limits the compass bar, the brackets and the radar; "apply that filter to the sky" copies the list's filter; a marker on the HUD shows it is on. **Runway from the wind**: with no pattern traffic to go by, the runway most into the wind at the nearest weather station is used (live: "Runway 10, from the wind, 130 at 4 at Toledo Executive"). Both checked in the desktop preview on live data; 31 app tests and 251 server checks pass.

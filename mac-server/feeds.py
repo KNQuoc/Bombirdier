@@ -189,6 +189,12 @@ class Feed:
             "id": self.id,
             "name": self.cfg.get("name", self.id),
             "kind": self.cfg.get("kind"),
+            # One controller can have several frequencies, each a feed of its own: `facility` says
+            # which controller a feed belongs to (the id the phone knows it by), `channel` what this
+            # frequency is called within it ("Arrival West"), `tag` a short form for transcripts.
+            "facility": self.cfg.get("facility") or self.id,
+            "channel": self.cfg.get("channel") or self.cfg.get("name", self.id),
+            "tag": self.cfg.get("tag") or "",
             "freqs": self.cfg.get("freqs", []),
             # Where to open the feed's own player, and what it is called there (tab feeds).
             "page": self.cfg.get("page"),

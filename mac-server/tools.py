@@ -50,7 +50,8 @@ ACTIONS: dict[str, list[str]] = {
     "set_runway": ["runway"],
     "sky_filter": [],  # optional: filter (only matching planes are shown in the sky), or fromList; neither = show everything again
     "ar_range": ["km"],  # how far out planes get icons on the compass bar and brackets in the sky; 0 = the default
-    "connect_feed": ["feed"],  # start listening to a radio feed (audio + transcript); feed = its id
+    "connect_feed": ["feed"],  # start listening to a radio feed (audio + transcript); feed = its id. Optional scope
+    "radio_scope": ["state"],  # all | one: every channel of the controller in the transcript, or only the one playing
     "disconnect_feed": [],
     "radio_audio": ["state"],  # on | off | up | down: the live audio, without disconnecting
     "transcript": ["state"],  # show | hide: the scrolling transcript, independent of the audio
@@ -73,7 +74,8 @@ ACTION_SCHEMA = {
         "fromList": {"type": "boolean", "description": "sky_filter: use the plane list's current filter"},
         "runway": {"type": "string", "enum": RUNWAYS},
         "feed": {"type": "string", "maxLength": 24, "description": "A radio feed id from the context"},
-        "state": {"type": "string", "enum": ["on", "off", "up", "down", "show", "hide"]},
+        "state": {"type": "string", "enum": ["on", "off", "up", "down", "show", "hide", "all", "one"]},
+        "scope": {"type": "string", "enum": ["facility", "channel"], "description": "connect_feed: transcript of every channel of that controller, or of this one only"},
     },
 }
 
@@ -88,7 +90,7 @@ REPLY_SCHEMA = {
 }
 
 # Which optional fields each type may also carry.
-_OPTIONAL = {"show_list": ["filter"], "sort": ["order"], "sky_filter": ["filter", "fromList"]}
+_OPTIONAL = {"show_list": ["filter"], "sort": ["order"], "sky_filter": ["filter", "fromList"], "connect_feed": ["scope"]}
 
 
 def validate_actions(raw) -> list[dict]:
@@ -113,6 +115,8 @@ def validate_actions(raw) -> list[dict]:
             continue
         if kind == "transcript" and clean["state"] not in ("show", "hide"):
             continue
+        if kind == "radio_scope" and clean["state"] not in ("all", "one"):
+            continue
         out.append(clean)
     return out[:4]
 
@@ -134,7 +138,8 @@ def describe_for_prompt() -> str:
 - set_runway {runway: 10|28|18|36|auto}: set the runway in use at Wood County by hand, or "auto" to let the app work it out from the traffic again
 - sky_filter {filter?, fromList?}: show only matching planes on the compass bar and in the sky ("only show helicopters in the sky", "just Southwest above thirty thousand in the sky"). fromList true = use the list's current filter. With neither, everything is shown again. This does not open the list
 - ar_range {km}: how far out planes are shown on the compass bar and in the sky, in kilometers, 5 to 200; 0 = back to the default of 50. This is not the radar zoom and not a list filter
-- connect_feed {feed}: start playing a radio feed and showing its transcript. `feed` is a feed id from the "Radio" lines of the context, and only one that is live
+- connect_feed {feed, scope?}: start playing a radio feed and showing its transcript. `feed` is a feed id from the "Radio" lines of the context, and only one that is live. scope "facility" = every channel of that controller in the transcript, "channel" = only this one
+- radio_scope {state: all|one}: while listening to a controller with several channels, show every channel's calls in the transcript, or only the channel that is playing
 - disconnect_feed: stop listening to the radio
 - radio_audio {state: on|off|up|down}: unmute, mute or change the volume of the radio without disconnecting
 - transcript {state: show|hide}: show or hide the radio transcript, independent of the audio

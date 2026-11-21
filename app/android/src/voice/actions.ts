@@ -29,8 +29,13 @@ export type ActionDeps = {
   knownPlanes: () => number;
   /** The radio you can listen to (Phase 5). */
   radio: {
-    /** Starts listening to a feed. Returns what to say if that isn't possible, else null. */
-    connect: (feedId: string) => string | null;
+    /**
+     * Starts listening to a feed. `scope` "facility" = every channel of its controller in the
+     * transcript, "channel" = only this one. Returns what to say if that isn't possible, else null.
+     */
+    connect: (feedId: string, scope?: string) => string | null;
+    /** all | one: the controller's whole transcript, or only the channel that is playing. False when not connected. */
+    scope: (state: string) => boolean;
     disconnect: () => void;
     /** on | off | up | down. False when not connected. */
     audio: (state: string) => boolean;
@@ -176,10 +181,13 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
         if (typeof a.km === 'number' && a.km >= 0) deps.setArRadiusKm(a.km > 0 ? a.km : null);
         break;
       case 'connect_feed': {
-        const problem = a.feed ? deps.radio.connect(a.feed) : "I don't know which frequency you mean.";
+        const problem = a.feed ? deps.radio.connect(a.feed, a.scope) : "I don't know which frequency you mean.";
         if (problem) say = problem;
         break;
       }
+      case 'radio_scope':
+        if (!a.state || !deps.radio.scope(a.state)) say = NOT_CONNECTED;
+        break;
       case 'disconnect_feed':
         deps.radio.disconnect();
         break;

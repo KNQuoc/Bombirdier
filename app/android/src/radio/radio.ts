@@ -159,6 +159,13 @@ export function createRadio(deps: {
     feed: (feedId: string | null | undefined) => feeds.find((f) => f.id === feedId) ?? null,
     /** The last `n` calls on one feed, oldest first: every call, whoever it was about. */
     transcript: (feedId: string, n: number): HeardCall[] => (transcripts.get(feedId) ?? []).slice(-n),
+    /** The last `n` calls over several feeds together, oldest first: a controller's channels as one transcript. */
+    merged(feedIds: string[], n: number): HeardCall[] {
+      return feedIds
+        .flatMap((id) => transcripts.get(id) ?? [])
+        .sort((a, b) => a.at - b.at || a.event.id - b.event.id)
+        .slice(-n);
+    },
     /** Which feed a plane was last named on, if recently: evidence of who it's talking to. */
     heardOn(planeId: string, now = Date.now()): { feedId: string; agoS: number } | null {
       const h = heardOn.get(planeId);

@@ -49,7 +49,7 @@ import { createAirportView } from './pattern/overlay';
 import { createRunwayDetector } from './pattern/runway';
 import { WIND_GOOD_FOR_MS, runwayForWind, windWords } from './pattern/wind';
 import type { Wind } from './pattern/wind';
-import { FACILITIES, facilityForFeed } from './atc/facilities';
+import { FACILITIES, channelsOf, facilityOfFeed } from './atc/facilities';
 import type { Facility } from './atc/facilities';
 import { createStations } from './atc/stations';
 import type { StationInfo } from './atc/stations';
@@ -419,14 +419,17 @@ function voiceContext() {
       connected: listener.connected(),
       audio: listener.state()?.audio ?? false,
       transcript: listener.state()?.transcript ?? false,
-      stations: FACILITIES.map((f) => ({ id: f.id, name: f.name, feedId: f.feedId })),
+      // Which controller is tuned, and whether its whole transcript or one channel's is showing.
+      scope: tuned ? (tuned.all ? 'facility' : 'channel') : null,
+      // Every controller with its channels (one feed each on the Mac).
+      stations: FACILITIES.map((f) => ({ id: f.id, name: f.name, feedId: firstChannel(f)?.id ?? null, channels: channels(f).map((c) => ({ feedId: c.id, name: c.channel })) })),
     },
   };
 }
 
 function stationBrief(id: string) {
   const f = FACILITIES.find((x) => x.id === id);
-  return f ? { id: f.id, name: f.name, freqs: f.freqs, feedId: f.feedId } : null;
+  return f ? { id: f.id, name: f.name, freqs: f.freqs, feedId: firstChannel(f)?.id ?? null } : null;
 }
 
 const macServer = createServer(
@@ -463,8 +466,14 @@ const assistant = createAssistant({
     coverageNm: () => WIDE_RADIUS_NM,
     knownPlanes: () => traffic?.all().length ?? 0,
     radio: {
-      connect: (feedId) => connectFeed(feedId),
-      disconnect: () => listener.disconnect(),
+      connect: (feedId, scope) => connectFeed(feedId, scope),
+      disconnect: () => disconnectRadio(),
+      scope: (state) => {
+        const facility = tuned && FACILITIES.find((f) => f.id === tuned!.facilityId);
+        if (!tuned || !facility) return false;
+        tuned = { ...tuned, all: state === 'all' && channels(facility).length > 1 };
+        return true;
+      },
       audio: (state) => listener.audio(state),
       transcript: (state) => listener.transcript(state),
     },
@@ -486,16 +495,22 @@ const radio = createRadio({
   callsignsByFeed: () => {
     // For each feed, the planes its controller is probably working, nearest to that controller first.
     // Planes in the very sector the feed carries (the guess names its frequency) come before the rest.
-    const byFeed: Record<string, { name: string; rank: number }[]> = {};
+    const byFacility = new Map<Facility, { name: string; rank: number }[]>();
     for (const p of traffic?.all() ?? []) {
       const guess = whoControls(p);
       const f = guess?.facility;
       const name = p.callsign?.trim() || p.registration;
-      if (!f?.feedId || !name) continue;
+      if (!f || !name) continue;
       const km = haversineKm(p.lat, p.lon, f.position.lat, f.position.lon);
-      (byFeed[f.feedId] ??= []).push({ name, rank: km + (guess?.freq ? 0 : 10_000) });
+      byFacility.set(f, [...(byFacility.get(f) ?? []), { name, rank: km + (guess?.freq ? 0 : 10_000) }]);
     }
-    return Object.fromEntries(Object.entries(byFeed).map(([id, list]) => [id, list.sort((a, b) => a.rank - b.rank).slice(0, 25).map((x) => x.name)]));
+    // Every channel of a controller is told the same planes: which of them is on which frequency isn't known.
+    const byFeed: Record<string, string[]> = {};
+    for (const [f, list] of byFacility) {
+      const names = list.sort((a, b) => a.rank - b.rank).slice(0, 25).map((x) => x.name);
+      for (const c of channels(f)) byFeed[c.id] = names;
+    }
+    return byFeed;
   },
 });
 
@@ -503,38 +518,67 @@ const radio = createRadio({
 const listener = createListener({ server: macServer });
 const stations = createStations();
 
-/** Starts listening to a feed. Returns what to say if it can't, else null. */
-function connectFeed(feedId: string): string | null {
+/**
+ * The controller being listened to, and whether its transcript shows every channel it has or only
+ * the one that is playing. (The audio is always one channel: `listener`.)
+ */
+let tuned: { facilityId: string; all: boolean } | null = null;
+
+/** A controller's channels as the Mac has them right now. */
+const channels = (f: Facility) => channelsOf(f, radio.feeds());
+/** The channel to start on: the first that is live, else the first there is. */
+const firstChannel = (f: Facility) => channels(f).find((c) => c.status === 'online') ?? channels(f)[0] ?? null;
+
+/**
+ * Starts listening to a feed. `scope`: "facility" = every channel of its controller in the
+ * transcript, "channel" = only this one, undefined = as it was (when staying with the same
+ * controller), else everything. Returns what to say if it can't, else null.
+ */
+function connectFeed(feedId: string, scope?: string): string | null {
   const feed = radio.feed(feedId);
   if (!feed) return "I can't find that frequency on the Mac.";
-  const name = facilityForFeed(feedId)?.name ?? feed.name;
+  const facility = facilityOfFeed(feed);
+  const name = facility ? (channels(facility).length > 1 ? `${facility.name} ${feed.channel}` : facility.name) : feed.name;
   if (feed.status !== 'online') return `${name} isn't playing on the Mac right now.`;
   listener.connect(feedId);
-  console.info(`[radio] connected to ${name}`);
+  const all = scope === 'facility' ? true : scope === 'channel' ? false : tuned && tuned.facilityId === facility?.id ? tuned.all : true;
+  tuned = facility ? { facilityId: facility.id, all } : null;
+  console.info(`[radio] connected to ${name}${tuned?.all ? ' (all channels in the transcript)' : ''}`);
   return null;
+}
+
+function disconnectRadio() {
+  listener.disconnect();
+  tuned = null;
 }
 
 /** Who a plane is talking to: where it was actually heard, else a guess from where it is. */
 function planeRadio(p: Plane) {
   const guess = whoControls(p);
   const heardAt = radio.heardOn(p.id);
-  const heardFacility = heardAt ? facilityForFeed(heardAt.feedId) : null;
-  const heard = heardAt && heardFacility ? { facility: heardFacility, agoS: heardAt.agoS } : null;
+  const heardFeed = heardAt ? radio.feed(heardAt.feedId) : null;
+  const heardFacility = facilityOfFeed(heardFeed);
+  // Which of the controller's frequencies, when it has several.
+  const heardChannel = heardFeed && heardFacility && channels(heardFacility).length > 1 ? heardFeed.channel : null;
+  const heard = heardAt && heardFacility ? { facility: heardFacility, agoS: heardAt.agoS, channel: heardChannel } : null;
   const facility = heard?.facility ?? guess?.facility;
   if (!facility) return null;
   const freq = guess?.facility.id === facility.id ? guess.freq : facility.freqs.length === 1 ? facility.freqs[0] : null;
+  const start = heardFeed ?? firstChannel(facility);
   return {
-    line: radioLine(guess, heard),
-    brief: { facility: facility.id, name: facility.name, freq, feedId: facility.feedId, heardAgoS: heard?.agoS ?? null },
+    line: radioLine(guess, heard, !!start),
+    brief: { facility: facility.id, name: facility.name, freq, feedId: start?.id ?? null, channel: heardChannel, heardAgoS: heard?.agoS ?? null },
   };
 }
 
 function stationInfo(f: Facility): StationInfo {
-  const last = f.feedId ? radio.transcript(f.feedId, 1)[0] : undefined;
+  const now = Date.now();
   return {
-    status: radio.feed(f.feedId)?.status ?? null,
-    lastCall: last ? { text: last.event.text, agoS: Math.round((Date.now() - last.at) / 1000) } : null,
-    connected: !!f.feedId && listener.connected() === f.feedId,
+    channels: channels(f).map((c) => {
+      const last = radio.transcript(c.id, 1)[0];
+      return { feedId: c.id, label: c.channel, freqs: c.freqs, status: c.status, lastCall: last ? { text: last.event.text, agoS: Math.round((now - last.at) / 1000) } : null };
+    }),
+    listeningTo: listener.connected(),
   };
 }
 
@@ -668,11 +712,19 @@ function frame() {
   let connectedView: ConnectedView | null = null;
   if (listening) {
     const feed = radio.feed(listening.feedId);
+    const facility = facilityOfFeed(feed);
+    const chans = facility ? channels(facility) : [];
+    // A controller with several channels: one plays, and the transcript can run all of them together.
+    const all = chans.length > 1 && !!tuned?.all;
     connectedView = {
-      name: facilityForFeed(listening.feedId)?.name ?? feed?.name ?? listening.feedId,
+      name: facility?.name ?? feed?.name ?? listening.feedId,
+      channel: chans.length > 1 ? (feed?.channel ?? null) : null,
       live: feed?.status === 'online',
       muted: !listening.audio,
-      lines: listening.transcript ? radio.transcript(listening.feedId, 4) : null,
+      lines: !listening.transcript ? null : all ? radio.merged(chans.map((c) => c.id), 4) : radio.transcript(listening.feedId, 4),
+      // In a combined transcript each line says which channel it came from.
+      tagFor: all ? (feedId) => radio.feed(feedId)?.tag || radio.feed(feedId)?.channel || null : undefined,
+      channelsLive: all ? chans.filter((c) => c.status === 'online').length : null,
     };
   }
   const transcriptShowing = !!connectedView?.lines && !showPanel;
@@ -1122,7 +1174,7 @@ window.addEventListener('keydown', (e) => {
   // C = listen to the controller in the middle of the view (again = stop). M = mute, T = transcript.
   else if (e.key === 'c' || e.key === 'C') {
     const feedId = lastHud.station && stationBrief(lastHud.station.id)?.feedId;
-    if (listener.connected()) listener.disconnect();
+    if (listener.connected()) disconnectRadio();
     else if (feedId) showToast(connectFeed(feedId) ?? 'Connected');
   } else if (e.key === 'm' || e.key === 'M') listener.audio(listener.state()?.audio ? 'off' : 'on');
   else if (e.key === 't' || e.key === 'T') listener.transcript(listener.state()?.transcript ? 'hide' : 'show');

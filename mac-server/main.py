@@ -256,7 +256,7 @@ async def ask(req: AskRequest) -> dict:
     # the one being listened to (or on any of them, if none is).
     radio_ctx = req.context.get("radio") if isinstance(req.context.get("radio"), dict) else {}
     connected = radio_ctx.get("connected") if isinstance(radio_ctx.get("connected"), str) else None
-    req.context["feeds"] = [{"id": f.id, "name": f.cfg.get("name", f.id), "status": f.current_status()} for f in feeds.all_feeds() if f.configured]
+    req.context["feeds"] = [{"id": f.id, "name": f.cfg.get("name", f.id), "status": f.current_status(), "lastCallAt": f.last_call_at} for f in feeds.all_feeds() if f.configured]
     req.context["radioRecent"] = feeds.recent(connected)
 
     reply = rules.quick(transcript, req.context)

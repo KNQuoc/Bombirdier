@@ -38,27 +38,27 @@ export const TOLEDO_APPROACH: Facility = {
   feedId: 'tol-app',
 };
 
-/** Detroit Metro (KDTW). The feed is one arrival sector of several: the frequency is not guessed. */
+/** Detroit Metro (KDTW): approach, departure and tower, each its own feed. Which sector a plane is on is not guessed. */
 export const DETROIT_APPROACH: Facility = {
   id: 'dtw-app',
-  name: 'Detroit Approach',
+  name: 'Detroit Metro',
   kind: 'approach',
   position: { lat: 42.21244, lon: -83.35339 },
   freqs: ['124.05'],
   feedId: 'dtw-app-west',
 };
 
-/** John Glenn Columbus (KCMH). */
+/** John Glenn Columbus (KCMH): approach sectors and tower, each its own feed. */
 export const COLUMBUS_APPROACH: Facility = {
   id: 'cmh-app',
-  name: 'Columbus Approach',
+  name: 'Columbus',
   kind: 'approach',
   position: { lat: 39.99799, lon: -82.89188 },
   freqs: ['125.95'],
   feedId: 'cmh-app-north',
 };
 
-/** Cleveland Center (ZOB), at Oberlin, Ohio. The feed is the Bluffton High sector, over northwest Ohio. */
+/** Cleveland Center (ZOB), at Oberlin, Ohio. Its feeds are sectors: Bluffton High is the one over northwest Ohio. */
 export const CLEVELAND_CENTER: Facility = {
   id: 'zob',
   name: 'Cleveland Center',
@@ -71,3 +71,22 @@ export const CLEVELAND_CENTER: Facility = {
 export const FACILITIES: Facility[] = [WOOD_COUNTY_CTAF, TOLEDO_APPROACH, DETROIT_APPROACH, CLEVELAND_CENTER, COLUMBUS_APPROACH];
 
 export const facilityForFeed = (feedId: string | null | undefined) => (feedId ? (FACILITIES.find((f) => f.feedId === feedId) ?? null) : null);
+
+/** A feed as far as grouping goes (the Mac's feed list: voice/server.ts FeedInfo). */
+type FeedRef = { id: string; facility: string };
+
+/**
+ * A controller's channels: every feed on the Mac that names it as its facility. Detroit has one
+ * icon and several frequencies (Arrival West, Arrival East, Tower...), each a feed of its own in
+ * mac-server/feeds.json, so adding a frequency there needs no change here.
+ */
+export function channelsOf<T extends FeedRef>(facility: Facility, feeds: T[]): T[] {
+  const mine = feeds.filter((f) => f.facility === facility.id);
+  return mine.length ? mine : feeds.filter((f) => f.id === facility.feedId);
+}
+
+/** The controller a feed belongs to. */
+export function facilityOfFeed(feed: FeedRef | null | undefined): Facility | null {
+  if (!feed) return null;
+  return FACILITIES.find((f) => f.id === feed.facility) ?? facilityForFeed(feed.id);
+}

@@ -462,5 +462,58 @@ check("sky: something harder goes to Aivana", rules.quick("only show Southwest a
 check("sky actions pass validation", tools.validate_actions([{"type": "sky_filter", "filter": {"kind": "jets"}}, {"type": "sky_filter", "fromList": True}, {"type": "sky_filter"}]),
       [{"type": "sky_filter", "filter": {"kind": "jets"}}, {"type": "sky_filter", "fromList": True}, {"type": "sky_filter"}])
 
+# --- One controller, several channels (Detroit: Arrival West, Arrival East, Tower...)
+DTW = {"id": "dtw-app", "name": "Detroit Metro", "feedId": "dtw-app-west", "channels": [
+    {"feedId": "dtw-app-west", "name": "Arrival West"}, {"feedId": "dtw-app-east", "name": "Arrival East"},
+    {"feedId": "dtw-dep-east", "name": "Departure East"}, {"feedId": "dtw-twr", "name": "Tower"}]}
+CMH = {"id": "cmh-app", "name": "Columbus Approach", "feedId": "cmh-app-north", "channels": [
+    {"feedId": "cmh-app-north", "name": "North"}, {"feedId": "cmh-twr", "name": "Tower"}]}
+MANY = [STATIONS[0], STATIONS[1], DTW, CMH]
+MANY_FEEDS = [
+    {"id": "1g0-ctaf", "status": "idle"}, {"id": "tol-app", "status": "online"},
+    {"id": "dtw-app-west", "status": "online", "lastCallAt": 100}, {"id": "dtw-app-east", "status": "online", "lastCallAt": 500},
+    {"id": "dtw-dep-east", "status": "idle"}, {"id": "dtw-twr", "status": "offline"},
+    {"id": "cmh-app-north", "status": "online"}, {"id": "cmh-twr", "status": "online"},
+]
+
+
+def many(connected=None, scope="facility", **more):
+    return {"focus": None, "radio": {"connected": connected, "scope": scope, "audio": True, "transcript": True, "stations": MANY}, "feeds": MANY_FEEDS, **more}
+
+
+LOOKING_AT_DTW = {"id": "dtw-app", "name": "Detroit Metro", "freqs": ["124.05"], "feedId": "dtw-app-west"}
+check("channels: can I access plays the one that spoke last, all in the transcript", rules.quick("Can I access?", many(station=LOOKING_AT_DTW)),
+      {"answer": "Yes, Detroit Metro has 2 of 4 channels live. Playing Arrival East, with both in the transcript.", "actions": [{"type": "connect_feed", "feed": "dtw-app-east", "scope": "facility"}]})
+check("channels: by controller name", actions("connect to Detroit", many()), [{"type": "connect_feed", "feed": "dtw-app-east", "scope": "facility"}])
+check("channels: one channel by name, on its own", rules.quick("listen to Detroit arrival west", many()),
+      {"answer": "Arrival West on Detroit Metro, and only that in the transcript.", "actions": [{"type": "connect_feed", "feed": "dtw-app-west", "scope": "channel"}]})
+check("channels: a channel that isn't playing", rules.quick("listen to Detroit tower", many()),
+      {"answer": "Tower on Detroit Metro isn't playing on the Mac right now. Arrival West and Arrival East are live.", "actions": []})
+check("channels: switch within the controller keeps the transcript as it is", rules.quick("switch to arrival west", many("dtw-app-east")),
+      {"answer": "Arrival West on Detroit Metro.", "actions": [{"type": "connect_feed", "feed": "dtw-app-west"}]})
+check("channels: 'tower' means the one of the controller you're on", actions("switch to tower", many("cmh-app-north")), [{"type": "connect_feed", "feed": "cmh-twr"}])
+check("channels: 'tower' with nothing connected and two live towers is not guessed", rules.quick("listen to tower", {**many(), "feeds": [{**f, "status": "online"} for f in MANY_FEEDS]}), None)
+check("channels: next channel", actions("next channel", many("dtw-app-east")), [{"type": "connect_feed", "feed": "dtw-app-west"}])
+check("channels: next channel wraps", actions("the other one", many("dtw-app-west")), [{"type": "connect_feed", "feed": "dtw-app-east"}])
+check("channels: next with one channel", said("next channel", many("tol-app")), "There's only one channel here.")
+check("channels: only this channel", actions("only this channel", many("dtw-app-east")), [{"type": "radio_scope", "state": "one"}])
+check("channels: all channels", actions("all channels", many("dtw-app-east", "channel")), [{"type": "radio_scope", "state": "all"}])
+check("channels: all channels on a single-channel controller", said("all channels", many("tol-app")), "Toledo Approach only has the one channel.")
+check("channels: already on the controller", said("can I access", many("dtw-app-east", station=LOOKING_AT_DTW)), "You're already on Detroit Metro, playing Arrival East.")
+check("channels: which channels", said("which channels are live", many(station=LOOKING_AT_DTW)), "Detroit Metro: Arrival West and Arrival East are live. Not playing: Departure East and Tower.")
+check("channels: which channels at a named controller", said("what channels does columbus have", many()), "Columbus Approach: North and Tower are live.")
+check("channels: what's live counts a controller once", said("what's live", many()), "Live right now: Toledo Approach, Detroit Metro, Columbus Approach.")
+check("channels: a plane's controller", actions("can I hear this one", many(focus={**SOUTHWEST, "radio": {"facility": "dtw-app", "name": "Detroit Metro", "freq": None, "feedId": "dtw-app-west", "heardAgoS": None}})),
+      [{"type": "connect_feed", "feed": "dtw-app-east", "scope": "facility"}])
+check("channels: 'only helicopters' is still the sky filter", actions("only helicopters", many("dtw-app-east")), HELIS)
+check("channels: 'next' alone is still the list", actions("next", many("dtw-app-east")), [{"type": "page", "direction": "next"}])
+check("channel actions pass validation", tools.validate_actions([{"type": "connect_feed", "feed": "dtw-twr", "scope": "channel"}, {"type": "radio_scope", "state": "all"}, {"type": "radio_scope", "state": "up"}]),
+      [{"type": "connect_feed", "feed": "dtw-twr", "scope": "channel"}, {"type": "radio_scope", "state": "all"}])
+text = context_text(many("dtw-app-east"))
+check("context: channels listed under their controller", "Detroit Metro (Arrival West: feed id dtw-app-west, live; Arrival East: feed id dtw-app-east, live; Departure East: feed id dtw-dep-east, not playing; Tower: feed id dtw-twr, not playing)" in text, True)
+check("context: single-channel controllers as before", "Toledo Approach (feed id tol-app, live)" in text, True)
+
+check("channels: one of several live", said("connect to Columbus", {**many(), "feeds": [f if f["id"] != "cmh-twr" else {**f, "status": "idle"} for f in MANY_FEEDS]}), "Yes, Columbus Approach has 1 of 2 channels live: North. Connecting.")
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

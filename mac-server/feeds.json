@@ -1,52 +1,18 @@
 [
-  {
-    "id": "1g0-ctaf",
-    "kind": "tab",
-    "talk": "pattern",
-    "name": "Wood County CTAF",
-    "freqs": ["122.975"],
-    "page": "https://www.liveatc.net/search/?icao=1g0",
-    "listenTo": "1G0 CTAF",
-    "player": "https://www.liveatc.net/hlisten.php?mount=1g0&icao=1g0"
-  },
-  {
-    "id": "tol-app",
-    "kind": "tab",
-    "talk": "mixed",
-    "name": "Toledo Tower and Approach",
-    "freqs": ["118.1", "126.1", "134.35"],
-    "page": "https://www.liveatc.net/search/?icao=KTOL",
-    "listenTo": "KTOL Del/Gnd/Twr/App",
-    "player": "https://www.liveatc.net/hlisten.php?mount=ktol&icao=ktol"
-  },
-  {
-    "id": "dtw-app-west",
-    "kind": "tab",
-    "talk": "airline",
-    "name": "Detroit Approach (Arrival West)",
-    "freqs": ["124.05"],
-    "page": "https://www.liveatc.net/search/?icao=KDTW",
-    "listenTo": "Detroit Approach (Arrival West)",
-    "player": "https://www.liveatc.net/hlisten.php?mount=kdtw_app_124050&icao=kdtw"
-  },
-  {
-    "id": "zob-47",
-    "kind": "tab",
-    "talk": "airline",
-    "name": "Cleveland Center (Bluffton High)",
-    "freqs": ["119.325"],
-    "page": "https://www.liveatc.net/search/?icao=ZOB",
-    "listenTo": "ZOB Sector 47 Bluffton Hi",
-    "player": "https://www.liveatc.net/hlisten.php?mount=kpcw1_zob_47&icao=kcle"
-  },
-  {
-    "id": "cmh-app-north",
-    "kind": "tab",
-    "talk": "airline",
-    "name": "Columbus Approach (North)",
-    "freqs": ["125.95"],
-    "page": "https://www.liveatc.net/search/?icao=KCMH",
-    "listenTo": "KCMH App/Dep (North)",
-    "player": "https://www.liveatc.net/hlisten.php?mount=kcmh_es_1_app_125950&icao=kcmh"
-  }
+  {"id": "1g0-ctaf", "kind": "tab", "facility": "1g0-ctaf", "channel": "CTAF", "tag": "CTAF", "talk": "pattern", "name": "Wood County CTAF", "freqs": ["122.975"], "page": "https://www.liveatc.net/search/?icao=1g0", "listenTo": "1G0 CTAF", "player": "https://www.liveatc.net/hlisten.php?mount=1g0&icao=1g0"},
+  {"id": "tol-app", "kind": "tab", "facility": "tol-app", "channel": "Tower and Approach", "tag": "TOL", "talk": "mixed", "name": "Toledo Tower and Approach", "freqs": ["118.1", "126.1", "134.35"], "page": "https://www.liveatc.net/search/?icao=KTOL", "listenTo": "KTOL Del/Gnd/Twr/App", "player": "https://www.liveatc.net/hlisten.php?mount=ktol&icao=ktol"},
+  {"id": "dtw-app-west", "kind": "tab", "facility": "dtw-app", "channel": "Arrival West", "tag": "ARR W", "talk": "airline", "name": "Detroit Approach (Arrival West)", "freqs": ["124.05"], "page": "https://www.liveatc.net/search/?icao=KDTW", "listenTo": "Detroit Approach (Arrival West)", "player": "https://www.liveatc.net/hlisten.php?mount=kdtw_app_124050&icao=kdtw"},
+  {"id": "dtw-app-east", "kind": "tab", "facility": "dtw-app", "channel": "Arrival East", "tag": "ARR E", "talk": "airline", "name": "Detroit Approach (Arrival East)", "freqs": ["125.15"], "page": "https://www.liveatc.net/search/?icao=KDTW", "listenTo": "Detroit Approach (Arrival East)", "player": "https://www.liveatc.net/hlisten.php?mount=kdtw_app_125150&icao=kdtw"},
+  {"id": "dtw-dep-east", "kind": "tab", "facility": "dtw-app", "channel": "Departure East", "tag": "DEP E", "talk": "airline", "name": "Detroit Departure (East)", "freqs": ["132.025"], "page": "https://www.liveatc.net/search/?icao=KDTW", "listenTo": "Detroit Departure (East)", "player": "https://www.liveatc.net/hlisten.php?mount=kdtw_dep_132025&icao=kdtw"},
+  {"id": "dtw-dep-west", "kind": "tab", "facility": "dtw-app", "channel": "Departure West", "tag": "DEP W", "talk": "airline", "name": "Detroit Departure (West)", "freqs": ["125.525"], "page": "https://www.liveatc.net/search/?icao=KDTW", "listenTo": "Detroit Departure (West)", "player": "https://www.liveatc.net/hlisten.php?mount=kdtw_dep_125525&icao=kdtw"},
+  {"id": "dtw-twr", "kind": "tab", "facility": "dtw-app", "channel": "Tower", "tag": "TWR", "talk": "airline", "name": "Detroit Tower", "freqs": ["118.4", "135.0"], "page": "https://www.liveatc.net/search/?icao=KDTW", "listenTo": "KDTW Tower", "player": "https://www.liveatc.net/hlisten.php?mount=kdtw_twr&icao=kdtw"},
+  {"id": "zob-47", "kind": "tab", "facility": "zob", "channel": "Bluffton High", "tag": "BLUFFTON", "talk": "airline", "name": "Cleveland Center (Bluffton High)", "freqs": ["119.325"], "page": "https://www.liveatc.net/search/?icao=ZOB", "listenTo": "ZOB Sector 47 Bluffton Hi", "player": "https://www.liveatc.net/hlisten.php?mount=kpcw1_zob_47&icao=kcle"},
+  {"id": "zob-21", "kind": "tab", "facility": "zob", "channel": "Windsor Low", "tag": "WINDSOR", "talk": "airline", "name": "Cleveland Center (Windsor Low)", "freqs": ["132.45"], "page": "https://www.liveatc.net/search/?icao=ZOB", "listenTo": "ZOB Sector 21 Windsor Low", "player": "https://www.liveatc.net/hlisten.php?mount=kpcw1_zob_21&icao=kcle"},
+  {"id": "zob-48", "kind": "tab", "facility": "zob", "channel": "Ravenna High", "tag": "RAVENNA", "talk": "airline", "name": "Cleveland Center (Ravenna High)", "freqs": ["119.875"], "page": "https://www.liveatc.net/search/?icao=ZOB", "listenTo": "ZOB Sector 48 Ravenna Hi", "player": "https://www.liveatc.net/hlisten.php?mount=kpcw1_zob_48&icao=kcle"},
+  {"id": "zob-04", "kind": "tab", "facility": "zob", "channel": "Mansfield Low", "tag": "MANSFIELD", "talk": "airline", "name": "Cleveland Center (Mansfield Low)", "freqs": ["134.9"], "page": "https://www.liveatc.net/search/?icao=ZOB", "listenTo": "ZOB Sector 04 Mansfield Low", "player": "https://www.liveatc.net/hlisten.php?mount=kmfd1_zob04&icao=kmfd"},
+  {"id": "zob-49", "kind": "tab", "facility": "zob", "channel": "Lorain High", "tag": "LORAIN", "talk": "airline", "name": "Cleveland Center (Lorain High)", "freqs": ["133.375"], "page": "https://www.liveatc.net/search/?icao=ZOB", "listenTo": "ZOB Sector 49 Lorain Hi", "player": "https://www.liveatc.net/hlisten.php?mount=kmfd1_zob49&icao=kmfd"},
+  {"id": "cmh-app-north", "kind": "tab", "facility": "cmh-app", "channel": "North", "tag": "NORTH", "talk": "airline", "name": "Columbus Approach (North)", "freqs": ["125.95"], "page": "https://www.liveatc.net/search/?icao=KCMH", "listenTo": "KCMH App/Dep (North)", "player": "https://www.liveatc.net/hlisten.php?mount=kcmh_es_1_app_125950&icao=kcmh"},
+  {"id": "cmh-app-south", "kind": "tab", "facility": "cmh-app", "channel": "South", "tag": "SOUTH", "talk": "airline", "name": "Columbus Approach (South)", "freqs": ["134.0"], "page": "https://www.liveatc.net/search/?icao=KCMH", "listenTo": "KCMH App/Dep (South)", "player": "https://www.liveatc.net/hlisten.php?mount=kcmh_es_1_app_134000&icao=kcmh"},
+  {"id": "cmh-app-final", "kind": "tab", "facility": "cmh-app", "channel": "Final", "tag": "FINAL", "talk": "airline", "name": "Columbus Approach (Final)", "freqs": ["118.2"], "page": "https://www.liveatc.net/search/?icao=KCMH", "listenTo": "KCMH App/Dep (Final)", "player": "https://www.liveatc.net/hlisten.php?mount=kcmh_es_1_app_118200&icao=kcmh"},
+  {"id": "cmh-twr", "kind": "tab", "facility": "cmh-app", "channel": "Tower", "tag": "TWR", "talk": "airline", "name": "Columbus Tower", "freqs": ["132.7"], "page": "https://www.liveatc.net/search/?icao=KCMH", "listenTo": "KCMH Tower #1", "player": "https://www.liveatc.net/hlisten.php?mount=kcmh_es_2_twr&icao=kcmh"}
 ]

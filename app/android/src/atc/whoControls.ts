@@ -76,13 +76,20 @@ export function agoShort(seconds: number): string {
  *   a guess:           "📻 Likely Toledo Approach 126.1"
  *   nothing to hear:   "📻 Likely Fort Wayne Approach · no live feed"
  */
-export function radioLine(guess: RadioGuess | null, heard: { facility: Facility; agoS: number } | null): string | null {
+export function radioLine(
+  guess: RadioGuess | null,
+  /** `channel`: which of the controller's frequencies it was heard on, when the controller has several. */
+  heard: { facility: Facility; agoS: number; channel?: string | null } | null,
+  /** Does the guessed controller have a feed at all? */
+  hasFeed = true,
+): string | null {
   if (heard) {
     // The frequency is only known if the guess agrees about who it is.
     const freq = guess?.facility.id === heard.facility.id ? guess.freq : heard.facility.freqs.length === 1 ? heard.facility.freqs[0] : null;
-    return `📻 ${[heard.facility.name, freq].filter(Boolean).join(' ')} · ✅ heard ${agoShort(heard.agoS)}`;
+    const where = heard.channel ? `${heard.facility.name} (${heard.channel})` : [heard.facility.name, freq].filter(Boolean).join(' ');
+    return `📻 ${where} · ✅ heard ${agoShort(heard.agoS)}`;
   }
   if (!guess) return null;
   const who = `📻 Likely ${[guess.facility.name, guess.freq].filter(Boolean).join(' ')}`;
-  return guess.facility.feedId ? who : `${who} · no live feed`;
+  return hasFeed && guess.facility.feedId ? who : `${who} · no live feed`;
 }

@@ -587,41 +587,78 @@ try {
     assert.equal(W.radioLine(toledo, { facility: ATC.CLEVELAND_CENTER, agoS: 200 }), '📻 Cleveland Center 119.325 · ✅ heard 3 min ago');
     // Heard on Toledo with no guess: two frequencies, so none is claimed.
     assert.equal(W.radioLine(null, { facility: ATC.TOLEDO_APPROACH, agoS: 5 }), '📻 Toledo Approach · ✅ heard 5s ago');
-    assert.equal(W.radioLine({ facility: ATC.DETROIT_APPROACH, freq: null }, null), '📻 Likely Detroit Approach');
-    assert.equal(W.radioLine({ facility: { ...ATC.DETROIT_APPROACH, feedId: null }, freq: null }, null), '📻 Likely Detroit Approach · no live feed');
+    // A controller with several channels: the one it was heard on is named.
+    assert.equal(W.radioLine({ facility: ATC.DETROIT_APPROACH, freq: null }, { facility: ATC.DETROIT_APPROACH, agoS: 12, channel: 'Arrival East' }), '📻 Detroit Metro (Arrival East) · ✅ heard 12s ago');
+    assert.equal(W.radioLine({ facility: ATC.DETROIT_APPROACH, freq: null }, null), '📻 Likely Detroit Metro');
+    assert.equal(W.radioLine({ facility: ATC.DETROIT_APPROACH, freq: null }, null, false), '📻 Likely Detroit Metro · no live feed');
     assert.equal(W.radioLine(null, null), null);
-    assert.equal(ATC.facilityForFeed('zob-47').id, 'zob');
-    assert.equal(ATC.facilityForFeed('nope'), null);
+  });
+
+  // The Mac's feed list, as the phone sees it: several feeds can belong to one controller.
+  const FEEDS = [
+    { id: '1g0-ctaf', facility: '1g0-ctaf', channel: 'CTAF', tag: 'CTAF', freqs: ['122.975'], status: 'idle' },
+    { id: 'tol-app', facility: 'tol-app', channel: 'Tower and Approach', tag: 'TOL', freqs: ['118.1', '126.1', '134.35'], status: 'online' },
+    { id: 'dtw-app-west', facility: 'dtw-app', channel: 'Arrival West', tag: 'ARR W', freqs: ['124.05'], status: 'online' },
+    { id: 'dtw-app-east', facility: 'dtw-app', channel: 'Arrival East', tag: 'ARR E', freqs: ['125.15'], status: 'online' },
+    { id: 'dtw-dep-east', facility: 'dtw-app', channel: 'Departure East', tag: 'DEP E', freqs: ['132.025'], status: 'idle' },
+    { id: 'dtw-twr', facility: 'dtw-app', channel: 'Tower', tag: 'TWR', freqs: ['118.4', '135.0'], status: 'offline' },
+    { id: 'zob-47', facility: 'zob', channel: 'Bluffton High', tag: 'BLUFFTON', freqs: ['119.325'], status: 'connecting' },
+  ];
+
+  test('feeds are grouped under their controller', () => {
+    assert.deepEqual(ATC.channelsOf(ATC.DETROIT_APPROACH, FEEDS).map((f) => f.id), ['dtw-app-west', 'dtw-app-east', 'dtw-dep-east', 'dtw-twr']);
+    assert.deepEqual(ATC.channelsOf(ATC.TOLEDO_APPROACH, FEEDS).map((f) => f.id), ['tol-app']);
+    assert.deepEqual(ATC.channelsOf(ATC.COLUMBUS_APPROACH, FEEDS), []); // none on the Mac
+    // A feed list from an older server (no grouping): the controller's own feed id still finds it.
+    assert.deepEqual(ATC.channelsOf(ATC.CLEVELAND_CENTER, [{ id: 'zob-47', facility: 'zob-47' }]).map((f) => f.id), ['zob-47']);
+    assert.equal(ATC.facilityOfFeed(FEEDS[5]).id, 'dtw-app');
+    assert.equal(ATC.facilityOfFeed({ id: 'zob-47', facility: 'zob-47' }).id, 'zob');
+    assert.equal(ATC.facilityOfFeed({ id: 'nope', facility: 'nope' }), null);
+    assert.equal(ATC.facilityOfFeed(null), null);
   });
 
   test('controllers on the compass bar', () => {
     const stations = ST.createStations();
-    const info = (f) => ({
-      status: { 'tol-app': 'online', 'dtw-app': 'offline', zob: 'connecting' }[f.id] ?? 'idle',
-      lastCall: f.id === 'tol-app' ? { text: 'Delta 1830, descend and maintain 4,000.', agoS: 40 } : null,
-      connected: false,
+    const info = (f, listeningTo = null) => ({
+      channels: ATC.channelsOf(f, FEEDS).map((c) => ({
+        feedId: c.id, label: c.channel, freqs: c.freqs, status: c.status,
+        lastCall: c.id === 'tol-app' ? { text: 'Delta 1830, descend and maintain 4,000.', agoS: 40 } : c.id === 'dtw-app-east' ? { text: 'Spirit 211, turn left heading 180.', agoS: 15 } : null,
+      })),
+      listeningTo,
     });
     // Standing 1 km south of the Wood County reference point.
-    const built = stations.build({ lat: 41.382, lon: -83.6301389 }, info);
+    const built = stations.build({ lat: 41.382, lon: -83.6301389 }, (f) => info(f));
     const by = Object.fromEntries(built.map((s) => [s.id, s]));
     close(by['1g0-ctaf'].bearingDeg, 0, 1, 'the field is due north');
     close(by['tol-app'].bearingDeg, 327, 2, 'Toledo Express is northwest');
     close(by['dtw-app'].bearingDeg, 14, 2, 'Detroit Metro is north-northeast');
     close(by.zob.bearingDeg, 94, 2, 'Oberlin is east');
     close(by['cmh-app'].bearingDeg, 158, 2, 'Columbus is south-southeast');
+    assert.equal(built.length, 5); // one icon per controller, however many channels it has
     assert.equal(by['tol-app'].color, ST.FEED_COLORS.online);
-    assert.equal(by['dtw-app'].color, ST.FEED_COLORS.offline);
+    assert.equal(by['dtw-app'].color, ST.FEED_COLORS.online); // any channel live
     assert.equal(by.zob.color, ST.FEED_COLORS.connecting);
     assert.equal(by['1g0-ctaf'].color, ST.FEED_COLORS.none); // never captured: nothing to hear
-    assert.deepEqual(by['tol-app'].card, ['Toledo Approach', '126.1 · 134.35 · 27 km', 'Live', '“Delta 1830, descend and maintain 4,000.” 40s ago', 'Say “Can I access?”']);
+    assert.equal(by['cmh-app'].color, ST.FEED_COLORS.none); // no feed at all
+    assert.deepEqual(by['tol-app'].card, ['Toledo Approach', '118.1 · 126.1 · 134.35 · 27 km', 'Live', '“Delta 1830, descend and maintain 4,000.” 40s ago', 'Say “Can I access?”']);
     assert.deepEqual(by['1g0-ctaf'].card, ['Wood County CTAF', '122.975 · 1.0 km', 'Not playing on the Mac']);
+    assert.deepEqual(by['cmh-app'].card.slice(1), ['125.95 · 166 km', 'No live feed']);
     assert.equal(by['1g0-ctaf'].tag, 'COMMON FREQUENCY');
+    // Detroit: its channels on the card, live ones first.
+    assert.deepEqual(by['dtw-app'].card, [
+      'Detroit Metro', '95 km · 2 of 4 channels live',
+      '● Arrival West 124.05', '● Arrival East 125.15', '○ Departure East 132.025', '○ Tower 118.4 / 135.0',
+      '“Spirit 211, turn left heading 180.” 15s ago · Arrival East', 'Say “Can I access?”',
+    ]);
+    // Listening to one of them.
+    const listening = stations.build({ lat: 41.382, lon: -83.63 }, (f) => info(f, 'dtw-app-east')).find((s) => s.id === 'dtw-app');
+    assert.equal(listening.card[3], '▶ Arrival East 125.15');
+    assert.equal(listening.card.at(-1), 'Say “switch to Arrival West” or “Disconnect”');
+    const toledo = stations.build({ lat: 41.382, lon: -83.63 }, (f) => info(f, 'tol-app')).find((s) => s.id === 'tol-app');
+    assert.deepEqual(toledo.card.slice(2), ['Live · you are listening', '“Delta 1830, descend and maintain 4,000.” 40s ago', 'Say “Disconnect” to stop']);
     // Standing on the field: its bearing stays where it last made sense instead of spinning.
-    const onTop = stations.build({ lat: 41.3911, lon: -83.6301389 }, info).find((s) => s.id === '1g0-ctaf');
-    close(onTop.bearingDeg, 0, 1, 'kept');
-    // Listening to it.
-    const listening = stations.build({ lat: 41.382, lon: -83.63 }, (f) => ({ ...info(f), connected: f.id === 'tol-app' })).find((s) => s.id === 'tol-app');
-    assert.deepEqual(listening.card.slice(2), ['Live · you are listening', '“Delta 1830, descend and maintain 4,000.” 40s ago', 'Say “Disconnect” to stop']);
+    const onTop = stations.build({ lat: 41.3911, lon: -83.6301389 }, (f) => info(f)).find((s) => s.id === '1g0-ctaf');
+    close(((onTop.bearingDeg + 180) % 360) - 180, 0, 1, 'kept (about north, as it was a kilometer away)');
   });
 
   // ---- Phase 4: which plane is a radio call about? ----

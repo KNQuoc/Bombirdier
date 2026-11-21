@@ -23,8 +23,10 @@ export type VoiceAction = {
   km?: number;
   /** connect_feed: the radio feed's id. */
   feed?: string;
-  /** radio_audio: on | off | up | down. transcript: show | hide. */
+  /** radio_audio: on | off | up | down. transcript: show | hide. radio_scope: all | one. */
   state?: string;
+  /** connect_feed: "facility" = every channel of that controller in the transcript, "channel" = this one only. */
+  scope?: string;
 };
 
 /** A spoken answer as audio, base64-encoded. */
@@ -64,6 +66,12 @@ export type FeedInfo = {
   configured: boolean;
   /** idle | connecting | online | offline */
   status: string;
+  /** The controller this feed belongs to (a Facility id in atc/facilities.ts). Several feeds can share one. */
+  facility: string;
+  /** What this frequency is called within its controller: "Arrival West". */
+  channel: string;
+  /** A short form for transcript lines: "ARR W". May be empty. */
+  tag: string;
 };
 
 function feedInfo(value: unknown): FeedInfo | null {
@@ -75,6 +83,9 @@ function feedInfo(value: unknown): FeedInfo | null {
     freqs: Array.isArray(f.freqs) ? f.freqs.map((x) => String(x).slice(0, 12)).slice(0, 6) : [],
     configured: f.configured === true,
     status: ['idle', 'connecting', 'online', 'offline'].includes(f.status as string) ? (f.status as string) : 'idle',
+    facility: String(f.facility ?? f.id).slice(0, 40),
+    channel: String(f.channel ?? f.name ?? f.id).slice(0, 40),
+    tag: String(f.tag ?? '').slice(0, 12),
   };
 }
 

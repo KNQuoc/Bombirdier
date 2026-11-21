@@ -78,12 +78,19 @@ export function drawRadio(ctx: CanvasRenderingContext2D, w: number, h: number, c
 
 /** What the HUD shows while you're connected to a feed. */
 export type ConnectedView = {
+  /** The controller: "Detroit Metro". */
   name: string;
+  /** Which of its channels is playing ("Arrival West"), when it has more than one. */
+  channel?: string | null;
   /** Is the feed coming in on the Mac right now? */
   live: boolean;
   muted: boolean;
   /** The transcript lines to show, oldest first; null = transcript hidden. */
   lines: HeardCall[] | null;
+  /** For a transcript of several channels together: the short name of a line's channel ("ARR W"). */
+  tagFor?: (feedId: string) => string | null;
+  /** How many of the controller's channels are in that combined transcript. */
+  channelsLive?: number | null;
 };
 
 const PILL_Y = 0.145;
@@ -103,7 +110,9 @@ export function drawConnected(ctx: CanvasRenderingContext2D, w: number, h: numbe
   // The pill.
   const size = fs(10.5);
   const state = view.live ? 'LIVE' : 'NO SIGNAL';
-  const text = `📻 ${view.name} · ${state}${view.muted ? '  🔇' : ''}${view.lines ? '  💬' : ''}`;
+  const where = view.channel ? `${view.name} · ${view.channel}` : view.name;
+  const together = view.channelsLive && view.channelsLive > 1 ? ` ×${view.channelsLive}` : '';
+  const text = `📻 ${where} · ${state}${view.muted ? '  🔇' : ''}${view.lines ? `  💬${together}` : ''}`;
   ctx.font = `700 ${size}px ${FONT}`;
   const tw = ctx.measureText(text).width;
   const pw = tw + 16;
@@ -144,16 +153,25 @@ export function drawConnected(ctx: CanvasRenderingContext2D, w: number, h: numbe
       const { plane, event } = call;
       const name = plane ? rowName(plane) : (event.callsignTokens[0] ?? '');
       ctx.globalAlpha = newest ? 1 : 0.45 + (0.35 * i) / Math.max(1, lines.length - 1);
+      // Several channels in one transcript: each line starts with which one it was.
+      const tag = view.tagFor?.(event.feedId) ?? null;
+      let lx = x;
+      if (tag) {
+        ctx.font = `700 ${fs(8.5)}px ${FONT}`;
+        ctx.fillStyle = COLORS.hud;
+        ctx.fillText(tag.toUpperCase(), lx, y);
+        lx += ctx.measureText(tag.toUpperCase()).width + 6;
+      }
       ctx.font = `700 ${lineSize}px ${FONT}`;
       const nameW = name ? ctx.measureText(name).width + 7 : 0;
       if (name) {
         ctx.fillStyle = plane ? (plane.accent ?? (planeColor(plane) !== COLORS.hud ? planeColor(plane) : COLORS.focus)) : 'rgba(255,255,255,0.6)';
-        ctx.fillText(name, x, y);
+        ctx.fillText(name, lx, y);
       }
       ctx.font = `500 ${lineSize}px ${FONT}`;
       ctx.fillStyle = COLORS.text;
       // With no callsign found, the whole call is shown as it was heard.
-      ctx.fillText(fit(ctx, name ? callBody(event.text) : event.text.replace(/\.$/, ''), maxW - nameW), x + nameW, y);
+      ctx.fillText(fit(ctx, name ? callBody(event.text) : event.text.replace(/\.$/, ''), maxW - nameW - (lx - x)), lx + nameW, y);
     });
   }
   ctx.restore();

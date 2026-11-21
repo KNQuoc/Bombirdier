@@ -70,8 +70,13 @@ def _radio_lines(ctx: dict) -> list[str]:
     if stations:
         parts = []
         for s in stations:
-            state = (feeds.get(s.get("feedId")) or {}).get("status")
-            parts.append(f"{s.get('name')} (feed id {s.get('feedId')}, {'live' if state == 'online' else 'not playing'})" if s.get("feedId") else f"{s.get('name')} (no feed)")
+            chans = [c for c in s.get("channels") or [] if c.get("feedId")] or ([{"feedId": s["feedId"], "name": None}] if s.get("feedId") else [])
+            if not chans:
+                parts.append(f"{s.get('name')} (no feed)")
+                continue
+            # A controller with several frequencies lists each as a channel with its own feed id.
+            listed = [f"{(c['name'] + ': ') if c.get('name') and len(chans) > 1 else ''}feed id {c['feedId']}, {'live' if (feeds.get(c['feedId']) or {}).get('status') == 'online' else 'not playing'}" for c in chans]
+            parts.append(f"{s.get('name')} ({'; '.join(listed)})")
         lines.append("Radio feeds: " + "; ".join(parts) + ".")
     station = ctx.get("station")
     if station:
@@ -79,7 +84,8 @@ def _radio_lines(ctx: dict) -> list[str]:
     connected = radio.get("connected")
     if connected:
         name = (feeds.get(connected) or {}).get("name") or connected
-        lines.append(f"Radio: listening to {name}, audio {'on' if radio.get('audio') else 'muted'}, transcript {'shown' if radio.get('transcript') else 'hidden'}.")
+        scope = ", every channel of that controller in the transcript" if radio.get("scope") == "facility" else ""
+        lines.append(f"Radio: listening to {name}, audio {'on' if radio.get('audio') else 'muted'}, transcript {'shown' if radio.get('transcript') else 'hidden'}{scope}.")
     elif stations:
         lines.append("Radio: not connected to a frequency.")
     recent = ctx.get("radioRecent") or []
