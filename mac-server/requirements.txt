@@ -2,3 +2,5 @@ fastapi
 uvicorn
 httpx
 mlx-whisper
+mlx-audio
+misaki[en]

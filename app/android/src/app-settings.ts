@@ -11,12 +11,15 @@ export type AppSettings = {
   activeRunway: string;
   /** Where the Mac server (voice assistant) is. The default works over USB after `adb reverse tcp:8787 tcp:8787`. */
   serverUrl: string;
+  /** Shared secret the Mac server asks for over Wi-Fi (BOMBIRDIER_TOKEN in mac-server/.env). Not needed over USB. */
+  serverToken: string;
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   wideTraffic: 'on',
   activeRunway: WOOD_COUNTY.defaultRunway,
   serverUrl: 'http://localhost:8787',
+  serverToken: '',
 };
 
 const STORAGE_KEY = 'bombirdier-settings-v1';
@@ -29,6 +32,7 @@ export function loadAppSettings(): AppSettings {
       wideTraffic: WIDE_MODES.includes(saved.wideTraffic as WideMode) ? saved.wideTraffic! : DEFAULT_APP_SETTINGS.wideTraffic,
       activeRunway: WOOD_COUNTY.runways.some((r) => r.ident === saved.activeRunway) ? saved.activeRunway! : DEFAULT_APP_SETTINGS.activeRunway,
       serverUrl: typeof saved.serverUrl === 'string' && /^https?:\/\//.test(saved.serverUrl) ? saved.serverUrl : DEFAULT_APP_SETTINGS.serverUrl,
+      serverToken: typeof saved.serverToken === 'string' ? saved.serverToken.slice(0, 200) : '',
     };
   } catch {
     return { ...DEFAULT_APP_SETTINGS };

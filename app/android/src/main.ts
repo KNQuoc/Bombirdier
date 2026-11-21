@@ -85,6 +85,7 @@ const radiusInput = document.getElementById('radius-input') as HTMLInputElement;
 const wideSelect = document.getElementById('wide-select') as HTMLSelectElement;
 const runwaySelect = document.getElementById('runway-select') as HTMLSelectElement;
 const serverInput = document.getElementById('server-input') as HTMLInputElement;
+const tokenInput = document.getElementById('token-input') as HTMLInputElement;
 const listBtn = document.getElementById('list-btn') as HTMLButtonElement;
 const doneBtn = document.getElementById('done-btn') as HTMLButtonElement;
 const calibrateBtn = document.getElementById('calibrate-btn') as HTMLButtonElement;
@@ -156,6 +157,7 @@ async function initSettings() {
   runwaySelect.replaceChildren(...AIRPORT.runways.map((r) => new Option(`${r.ident} (${r.patternSide} pattern)`, r.ident)));
   runwaySelect.value = appSettings.activeRunway;
   serverInput.value = appSettings.serverUrl;
+  tokenInput.value = appSettings.serverToken;
   await refreshCameraList();
 
   if (DEV) {
@@ -195,6 +197,7 @@ function readSettingsFromForm() {
     wideTraffic: wideSelect.value as WideMode,
     activeRunway: runwaySelect.value || appSettings.activeRunway,
     serverUrl: /^https?:\/\//.test(serverUrl) ? serverUrl : 'http://localhost:8787',
+    serverToken: tokenInput.value.trim(),
   };
   serverInput.value = appSettings.serverUrl;
   saveAppSettings(appSettings);
@@ -326,7 +329,10 @@ function voiceContext() {
   };
 }
 
-const macServer = createServer(() => appSettings.serverUrl);
+const macServer = createServer(
+  () => appSettings.serverUrl,
+  () => appSettings.serverToken,
+);
 const assistant = createAssistant({
   server: macServer,
   context: voiceContext,
@@ -341,7 +347,9 @@ const assistant = createAssistant({
       return true;
     },
     coverageNm: () => WIDE_RADIUS_NM,
+    knownPlanes: () => traffic?.all().length ?? 0,
   },
+  macVoice: () => serverHealth?.tts === 'ready',
   onExchange: (r) => {
     lastExchange = r;
     if (mode === 'info') renderOverlay();
@@ -360,9 +368,13 @@ async function checkServer() {
 /** The voice line of the info display: is the server there, and how the last question went. */
 function voiceInfo(): string {
   if (!serverHealth) return `voice: Mac server not reachable at ${macServer.url()}`;
-  const parts = [`voice: server ok, whisper ${serverHealth.whisper}${serverHealth.aivana ? '' : ', no Aivana key'}`];
+  const voice = serverHealth.tts === 'ready' ? 'Mac voice' : `phone voice (Mac voice ${serverHealth.tts})`;
+  const parts = [`voice: server ok, whisper ${serverHealth.whisper}, ${voice}${serverHealth.aivana ? '' : ', no Aivana key'}`];
+  if (serverHealth.tokenNeeded && !appSettings.serverToken) parts.push('needs a server token (settings)');
   const t = lastExchange?.timings;
-  if (lastExchange && t) parts.push(`last: ${lastExchange.source} ${t.totalMs ?? '?'} ms (whisper ${t.whisperMs ?? 0}${t.llmMs ? `, llm ${t.llmMs}` : ''})`);
+  if (lastExchange && t) {
+    parts.push(`last: ${lastExchange.source} ${t.totalMs ?? '?'} ms (whisper ${t.whisperMs ?? 0}${t.llmMs ? `, llm ${t.llmMs}` : ''}${t.ttsMs ? `, voice ${t.ttsMs}` : ''})`);
+  }
   return parts.join(' · ');
 }
 
@@ -444,6 +456,9 @@ function frame() {
   if (!DEV) tilt.update(orientation?.get()?.rollDeg ?? null, hud.timeMs);
 }
 
+/** The overlay is built as HTML: anything that isn't our own fixed text (server replies, settings, device labels) goes through this. */
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
 /** DOM overlay: crosshair, calibration toast, errors, debug line. Redrawn on events, not per frame. */
 function renderOverlay() {
   if (!view) return;
@@ -458,12 +473,12 @@ function renderOverlay() {
       : `decl ${MAG_DECLINATION_DEG}° (Atlanta default)`;
     const lensInfo = lens ? `camera ${lens.cameraId} ${Math.round(halfFovDeg(lens.halfTan1x) * 2)}°` : 'assumed';
     const screenInfo = screenMm ? `screen ${Math.round(screenMm)}mm` : `screen ~${FALLBACK.screenWidthMm}mm assumed`;
-    debug = `<div class="debug">${hdg} · ${decl} · fov ${Math.round(lastHalfFovDeg * 2)}° (lens ${lensInfo}) · ${traffic?.near.get().status ?? ''} · ${wideInfo()}<br>
-      ${voiceInfo()}<br>
-      ${screenInfo} · tilt ${settings.tiltDeg}° · ${settings.ipdMm}mm · shift ${settings.offsetMm}mm · ${Math.round(settings.viewScale * 100)}% · ${stream ? describeStream(stream) : 'no camera'}</div>`;
+    debug = `<div class="debug">${hdg} · ${decl} · fov ${Math.round(lastHalfFovDeg * 2)}° (lens ${escapeHtml(lensInfo)}) · ${escapeHtml(traffic?.near.get().status ?? '')} · ${escapeHtml(wideInfo())}<br>
+      ${escapeHtml(voiceInfo())}<br>
+      ${screenInfo} · tilt ${settings.tiltDeg}° · ${settings.ipdMm}mm · shift ${settings.offsetMm}mm · ${Math.round(settings.viewScale * 100)}% · ${stream ? escapeHtml(describeStream(stream)) : 'no camera'}</div>`;
   }
-  const error = hudError ? `<div class="hud-error">${hudError}</div>` : '';
-  const toastHtml = toast ? `<div class="toast">${toast}</div>` : '';
+  const error = hudError ? `<div class="hud-error">${escapeHtml(hudError)}</div>` : '';
+  const toastHtml = toast ? `<div class="toast">${escapeHtml(toast)}</div>` : '';
   const html = `<div class="crosshair"></div>${error}${toastHtml}${debug}`;
   for (const eye of view.eyes) eye.overlay.innerHTML = html;
 }

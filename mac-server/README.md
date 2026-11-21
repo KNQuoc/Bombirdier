@@ -7,7 +7,8 @@ phone ── audio + what's around ──▶  POST /api/voice/ask
                                       1. mlx-whisper: speech → text (on this Mac, audio is never stored or sent on)
                                       2. rules.py: commands with one obvious meaning are answered at once
                                       3. otherwise Aivana answers (docs/aivana.md)
-phone ◀── { transcript, answer, actions } ──
+                                      4. Kokoro turns the answer into speech (on this Mac)
+phone ◀── { transcript, answer, actions, speech } ──
 ```
 
 ## Setup (once)
@@ -21,7 +22,7 @@ python3.12 -m venv .venv
 cp .env.example .env        # then put your Aivana key in it
 ```
 
-The first question downloads the Whisper model (about 1.6 GB) into `~/.cache/huggingface`.
+The first start downloads the Whisper model (about 1.6 GB) and the Kokoro voice (about 350 MB) into `~/.cache/huggingface`. Until both are loaded, `/api/health` says `loading`.
 
 ## Run
 
@@ -32,9 +33,15 @@ The first question downloads the Whisper model (about 1.6 GB) into `~/.cache/hug
 It listens on `http://127.0.0.1:8787`, this Mac only.
 
 - **USB (simplest):** with the phone plugged in, run `adb reverse tcp:8787 tcp:8787`. The app's default server address (`http://localhost:8787`) then reaches the Mac. Run it again after reconnecting the cable.
-- **Wi-Fi:** start with `HOST=0.0.0.0 ./run.sh` and set Settings → Mac server in the app to `http://<the Mac's IP>:8787`. This lets anything on your network use the server, and with it your Aivana credit, so only do it on a network you trust.
+- **Wi-Fi:** start with `HOST=0.0.0.0 ./run.sh`, set Settings → Mac server in the app to `http://<the Mac's IP>:8787`, and set the same long random string as `BOMBIRDIER_TOKEN` in `.env` and as Settings → Server token in the app (`openssl rand -hex 24` makes one). Without the token, questions from other machines are refused: the server can spend your Aivana credit, so it doesn't answer whoever finds it on the network. The token travels over plain http, so this is for a home network you trust, not a public one.
 
-Check it: `curl http://127.0.0.1:8787/api/health` → `{"ok":true,"whisper":"ready","aivana":true}`.
+Who the server listens to:
+
+- Requests must name the server by `localhost` or by IP address. This stops a web page in your browser from reaching it under a made-up domain name.
+- Questions from this Mac (which is what the phone looks like over USB) need no token; from anywhere else they need `BOMBIRDIER_TOKEN`.
+- Requests over 12 MB are refused unread.
+
+Check it: `curl http://127.0.0.1:8787/api/health` → `{"ok":true,"whisper":"ready","tts":"ready","aivana":true,...}`.
 
 Try a question without a phone:
 
@@ -43,15 +50,23 @@ curl -s http://127.0.0.1:8787/api/voice/ask -H 'Content-Type: application/json' 
   -d '{"text": "show me the helicopters", "context": {}}'
 ```
 
+## The voice
+
+Answers are spoken by Kokoro, a neural voice that runs on this Mac (`tts.py`), and the phone plays the audio. Generating a sentence takes 0.05–0.3 s once loaded. If the Mac has no voice (still loading, turned off, or the clip fails to play), the phone uses Android's built-in voice instead.
+
+Pick a voice in `.env`: `TTS_VOICE=af_heart` (US female, the default), `am_michael` (US male), `bm_george` (British male), and others from the Kokoro voice list. `TTS_VOICE=` (empty) turns the Mac voice off. `TTS_SPEED=1.1` speaks a little faster.
+
 ## What answers what
 
-| You say | Answered by | Typical time after you stop talking |
+| You say | Answered by | Measured, from end of speech to reply ready |
 |---|---|---|
-| "Next page", "close the list", "sort by altitude", "open number three" | `rules.py` | Whisper only |
-| "Show me the helicopters / jets / BGSU planes", "any emergencies?" | `rules.py`; the phone counts and words the reply | Whisper only |
-| "Zoom the radar to 100 miles", "we're using runway one zero" | `rules.py` | Whisper only |
-| "What's that plane?" | `rules.py`, from the plane's own data | Whisper only |
-| Anything else ("only Southwest above thirty thousand", "how many seats does it have?", "why is it descending?") | Aivana | Whisper + 3–6 s |
+| "Next page", "close the list", "sort by altitude", "open number three" | `rules.py` | about 0.3 s |
+| "Show me the helicopters / jets / BGSU planes", "any emergencies?" | `rules.py`; the phone counts and words the reply | about 0.3 s, plus 0.2 s for its speech |
+| "Zoom the radar to 100 miles", "we're using runway one zero" | `rules.py` | about 0.4 s |
+| "What's that plane?" | `rules.py`, from the plane's own data | about 0.8 s (a long sentence to voice) |
+| Anything else ("only Southwest above thirty thousand", "how many seats does it have?", "why is it descending?") | Aivana | 3–6 s |
+
+Measured on this Mac with clean test audio (macOS `say`), 2026-11-20: Whisper about 0.3 s, Kokoro 0.1–0.6 s. A real voice through a phone microphone outdoors will transcribe less cleanly.
 
 Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), which is why the common commands don't go through it.
 
@@ -60,7 +75,9 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | File | What |
 |---|---|
 | `main.py` | The HTTP endpoints: `GET /api/health`, `POST /api/voice/ask` |
-| `transcribe.py` | mlx-whisper (`whisper-large-v3-turbo`), prompted with aviation words and the callsigns in view |
+| `transcribe.py` | mlx-whisper (`whisper-large-v3-turbo`), prompted with aviation words and the callsigns in view; drops what Whisper makes up from silence or noise |
+| `tts.py` | Kokoro speech (mlx-audio) |
+| `gpu.py` | The single thread all model work runs on |
 | `rules.py` | Instant commands |
 | `llm.py` | The only file that talks to Aivana. Replace it to use another LLM |
 | `prompt.py` | The assistant's persona and how the phone's context is written out for it |
@@ -70,6 +87,6 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 
 ## Privacy
 
-- Audio stays on this Mac: it is written to a temporary file for Whisper and deleted straight after.
+- Audio stays on this Mac: it is written to a temporary file for Whisper and deleted straight after. Speech is generated here too.
 - What goes to Aivana: the transcribed question and a few lines about the planes around you, the airport and the list. No audio, no location beyond "at Wood County" and distances.
 - The Aivana key is read from `.env`, which is gitignored. It is never sent to the phone.

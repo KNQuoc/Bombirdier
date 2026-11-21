@@ -45,6 +45,17 @@ def article(noun: str) -> str:
     return "an" if noun[:1].lower() in "aeiou" else "a"
 
 
+def spoken_leg(leg: str) -> str:
+    """"Right downwind · RWY 28" (what the card shows) -> "It's on right downwind for runway 2 8."""
+    words, _, runway = leg.partition(" · RWY ")
+    runway = " ".join(runway)  # "2 8": said digit by digit, the way pilots do
+    if words.startswith("Entering"):
+        return f"It's entering the pattern for runway {runway}."
+    if words.startswith("Departing"):
+        return f"It's departing runway {runway}."
+    return f"It's on {words.lower()} for runway {runway}."
+
+
 def describe(plane: dict) -> str:
     """One or two sentences about a plane, from its data alone. Used for "what's that plane?"."""
     kind = plane.get("typeName") or plane.get("typeCode") or ("helicopter" if plane.get("kind") == "helicopter" else "")
@@ -69,8 +80,7 @@ def describe(plane: dict) -> str:
         trend = ", climbing" if rate >= 300 else ", descending" if rate <= -300 else ""
         where.append(f"at {feet(plane['altitudeFt'])}{trend}")
     second = f" It's {' '.join(where)}." if where else ""
-    leg = plane.get("leg")
-    third = f" {leg.replace(' · RWY ', ' for runway ')}." if leg else ""
+    third = f" {spoken_leg(plane['leg'])}" if plane.get("leg") else ""
     if plane.get("emergency"):
         third += " It's declaring an emergency."
     return (first + second + third).strip()

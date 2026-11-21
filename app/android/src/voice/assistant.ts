@@ -21,6 +21,8 @@ export type AssistantDeps = {
   /** What's around right now: sent with every question. */
   context: () => unknown;
   actions: ActionDeps;
+  /** Can the Mac speak (Kokoro loaded)? If not, the phone's built-in voice is used without asking. */
+  macVoice: () => boolean;
   /** After each exchange: how long it took and who answered, for the info line. */
   onExchange?: (r: AskResponse) => void;
 };
@@ -53,8 +55,10 @@ export function createAssistant(deps: AssistantDeps) {
     let reply: AskResponse;
     try {
       reply = await deps.server.ask({ ...body, context: deps.context() });
-    } catch {
-      if (mine === turn) fail("Can't reach the Mac server. Is it running, and is USB or Wi-Fi connected?");
+    } catch (e) {
+      if (mine !== turn) return;
+      const refused = e instanceof Error && e.message === 'HTTP 401';
+      fail(refused ? 'The Mac server wants a token. Set Server token in settings (see mac-server/README).' : "Can't reach the Mac server. Is it running, and is USB or Wi-Fi connected?");
       return;
     }
     if (mine !== turn) return;
@@ -64,7 +68,11 @@ export function createAssistant(deps: AssistantDeps) {
     const say = applyActions(reply.actions ?? [], deps.actions) ?? reply.answer;
     hud.answer = say || null;
     hud.state = 'speaking';
-    await speak(say);
+    await speak(say, {
+      // The server already voiced its own answer; if the phone reworded it, ask for that text instead.
+      clip: say === reply.answer ? reply.speech : undefined,
+      fetchClip: deps.macVoice() ? (text) => deps.server.speech(text) : undefined,
+    });
     if (mine !== turn) return;
     hud.state = 'idle';
     clearTimeout(clearTimer);

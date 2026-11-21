@@ -17,6 +17,8 @@ export type ActionDeps = {
   setRunway: (ident: string) => boolean;
   /** How far the data reaches, for "no helicopters within 250 miles". */
   coverageNm: () => number;
+  /** How many planes the app knows about at all. Zero means there's no data, not an empty sky. */
+  knownPlanes: () => number;
 };
 
 const KIND_NOUNS: Record<string, [string, string]> = {
@@ -48,6 +50,8 @@ function counted(n: number, f: ListFilter): string {
   return `${n} ${n === 1 ? one : many}${narrowed ? (n === 1 ? ' matches' : ' match') : ''}`;
 }
 
+const NO_DATA = "I don't have any traffic data right now.";
+
 function nothing(f: ListFilter, coverageNm: number): string {
   const many = f.fleet === 'bgsu' ? 'BGSU planes' : f.kind ? KIND_NOUNS[f.kind][1] : 'planes';
   const { fleet: _fleet, kind: _kind, sort: _sort, order: _order, page: _page, ...rest } = f;
@@ -59,6 +63,7 @@ function listSummary(deps: ActionDeps): string | null {
   const view = deps.list.view();
   if (!view) return null;
   const filter = deps.list.state().filter;
+  if (!deps.knownPlanes()) return NO_DATA;
   if (!view.matched.length) return nothing(filter, deps.coverageNm());
   const nearest = view.matched.reduce((a, b) => (b.distanceKm < a.distanceKm ? b : a));
   return `${counted(view.matched.length, filter)}, closest is ${spokenMiles(nearest.distanceKm)} ${compassWord(nearest.bearingDeg)}.`;
@@ -130,7 +135,7 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
           list.show(filter);
           say = listSummary(deps);
         } else {
-          say = nothing(filter, deps.coverageNm());
+          say = deps.knownPlanes() ? nothing(filter, deps.coverageNm()) : NO_DATA;
         }
         break;
       }

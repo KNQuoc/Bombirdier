@@ -19,3 +19,6 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Voice samples generated while choosing a TTS voice
+mac-server/samples/

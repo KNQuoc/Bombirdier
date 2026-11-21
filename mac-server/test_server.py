@@ -72,11 +72,14 @@ check("empty", actions("   "), None)
 
 what = rules.quick("What's that plane?", CTX)
 check("whats that: no actions", what["actions"], [])
-check("whats that: text", what["answer"], "That's N 3 3 7 B G, a BGSU Piper PA-28 Archer. It's less than a mile north at 1,700 feet. Right downwind for runway 28.")
+check("whats that: text", what["answer"], "That's N 3 3 7 B G, a BGSU Piper PA-28 Archer. It's less than a mile north at 1,700 feet. It's on right downwind for runway 2 8.")
 check("what am i looking at", rules.quick("what am I looking at", {"focus": SOUTHWEST})["answer"],
       "That's Southwest 1234, a Boeing 737-800, from MDW to CLE. It's 30 miles south at 36,000 feet, descending.")
 check("nothing in view", rules.quick("What is that?", {})["answer"].startswith("I don't see a plane"), True)
 
+check("leg final", speech.spoken_leg("Final · RWY 28"), "It's on final for runway 2 8.")
+check("leg entry", speech.spoken_leg("Entering the pattern · RWY 10"), "It's entering the pattern for runway 1 0.")
+check("leg departure", speech.spoken_leg("Departing · RWY 36"), "It's departing runway 3 6.")
 check("miles small", speech.miles(1.0), "less than a mile")
 check("miles one", speech.miles(1.852), "1 mile")
 check("miles mid", speech.miles(9.3), "5 miles")

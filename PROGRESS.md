@@ -9,7 +9,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 | 0. Sky-placement patch + rename | 🟡 | [#1](https://github.com/KNQuoc/Bombirdier/issues/1) |
 | 1. Live traffic to 250 nm + list view | 🟡 | [#2](https://github.com/KNQuoc/Bombirdier/issues/2) |
 | 2. Traffic-pattern overlay at 1G0 | 🟡 | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
-| 3. AI voice assistant (Mac server + Aivana) | ⬜ | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
+| 3. AI voice assistant (Mac server + Aivana) | 🟡 | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
 | 4. Radio-call linking (LiveATC) | ⬜ | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
 | 5. Controllers on headband + "Can I access?" | ⬜ | [#6](https://github.com/KNQuoc/Bombirdier/issues/6) |
 | 6. Stretch goals | ⬜ | [#7](https://github.com/KNQuoc/Bombirdier/issues/7) |
@@ -59,17 +59,21 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 3: AI voice assistant
 
-- [ ] `mac-server/` FastAPI on :8787, `/api/health`
-- [ ] mlx-whisper (`whisper-large-v3-turbo`) with aviation + callsign `initial_prompt`
-- [x] `docs/aivana.md`: written from Aivana's public docs (2026-11-20). Not OpenAI-compatible, no tool calling; actions will come back through its strict JSON Schema output
-- [ ] Kien: create an Aivana API key and put it in `mac-server/.env` (see `.env.example`)
-- [ ] `mac-server/llm.py` against `POST /v1/generate`; measure latency with the real key
-- [ ] Assistant prompt (co-pilot, short answers)
-- [ ] `mac-server/tools.py`: list/radar tools, `{ answer, actions }` reply
-- [ ] Phone: `rollDeg` in orientation, head-tilt push-to-talk, MediaRecorder, `RECORD_AUDIO`
-- [ ] Phone: context payload, apply actions, native TTS, `HudState.voice` back on
-- [ ] USB (`adb reverse`) + Wi-Fi Server URL with cleartext config
-- [ ] Done: "what's that plane?" answered in < ~3 s; "show me all the jets above thirty thousand feet" opens the filtered list
+- [x] `mac-server/` FastAPI on :8787, `/api/health`, `/api/voice/ask`, `/api/voice/speak`
+- [x] mlx-whisper (`whisper-large-v3-turbo`) with aviation + callsign `initial_prompt`; silence and noise rejected (about 0.3 s per question on this Mac)
+- [x] `docs/aivana.md`: written from Aivana's public docs. Not OpenAI-compatible, no tool calling; actions come back through its strict JSON Schema output
+- [x] Aivana key in `mac-server/.env` (Kien), `mac-server/llm.py` against `POST /v1/generate`. Measured 3–6 s per call at `effort: low`
+- [x] Because of that: `rules.py` answers paging, simple filters, sorting, radar zoom, runway changes and "what's that plane?" on the Mac at once; only open questions go to Aivana
+- [x] Assistant prompt (co-pilot, short answers), `mac-server/tools.py` action schema, `{ answer, actions }` reply
+- [x] Natural voice: Kokoro on the Mac (asked for by Kien), 0.1–0.6 s per answer, Android TTS as fallback
+- [x] Phone: `rollDeg` in orientation, head-tilt push-to-talk, MediaRecorder, `RECORD_AUDIO`
+- [x] Phone: context payload, apply actions (and word counts itself), speech playback, `HudState.voice` back on
+- [x] USB (`adb reverse`) + Wi-Fi Server URL with cleartext config; Wi-Fi needs a shared token (`BOMBIRDIER_TOKEN`)
+- [x] Server access checks after a security review: Host validation, body size cap, token for non-local requests; server text escaped on the phone
+- [x] Tests: `mac-server/test_server.py` (55 checks); 12 real audio questions transcribed and answered correctly on the Mac (test voices, not a person)
+- [ ] On the phone: head-tilt trigger, microphone recording, speech playback (none of this has run on a device yet)
+- [ ] Kien: pick a voice (samples: af_heart, am_michael, bm_george)
+- [ ] Done: "what's that plane?" answered in < ~3 s (0.8 s on the Mac with test audio; phone not measured); "show me all the jets above thirty thousand feet" opens the filtered list (works, about 3–6 s through Aivana)
 
 ## Phase 4: radio-call linking (LiveATC)
 
@@ -108,6 +112,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-20 · phase 3 · Voice assistant built: Mac server (Whisper, instant rules, Aivana, Kokoro voice), phone side (head-tilt, recording, actions, playback), access checks. Verified on the Mac with real audio and in desktop dev mode; not yet on a phone.
 - 2026-11-20 · phase 3 prep · Read Aivana's API docs and summarized them in `docs/aivana.md`; added `mac-server/.env.example`.
 - 2026-11-20 · phase 2 · Wood County runways and traffic pattern on the radar and in the sky; pattern-leg classifier with hysteresis; leg on the card and radar; Active runway setting. 20 unit tests pass. Drawing checked with synthetic planes only: no live pattern traffic at night.
 - 2026-11-20 · phase 1 · BGSU planes are tagged, colored orange and filterable; trainer type names added (P28A = Piper PA-28 Archer, PA44 = Piper PA-44 Seminole). Checked on a live BGSU Archer (N337BG) 25 km west of 1G0.
