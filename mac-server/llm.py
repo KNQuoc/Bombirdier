@@ -48,6 +48,9 @@ async def complete(messages: list[dict], system: str = "", schema: dict | None =
         for attempt in range(2):
             try:
                 r = await client.post(config.AIVANA_URL, json=body, headers=headers)
+            except httpx.TimeoutException:
+                last = LLMError(f"Aivana did not answer within {TIMEOUT_S:.0f} s", code="timeout")
+                break  # a second wait that long is no use to someone who asked out loud
             except httpx.HTTPError as e:
                 last = LLMError(f"Could not reach Aivana: {e.__class__.__name__}", code="network")
             else:

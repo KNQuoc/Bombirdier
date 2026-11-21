@@ -85,6 +85,13 @@ def _amount(words: str) -> int | None:
     return under_hundred(values)
 
 
+HELP = (
+    "Look at a plane and ask: what's that plane, when does it land, or where did it come from. "
+    "Say show me the helicopters, or any BGSU planes, for a list. "
+    "Ask what's the weather. Or look at a controller and say can I access, to listen in."
+)
+
+
 def _reply(answer: str, *actions: dict) -> dict:
     return {"answer": answer, "actions": list(actions)}
 
@@ -100,6 +107,10 @@ def quick(text: str, context: dict) -> dict | None:
     radio = radiotalk.quick(t, context)
     if radio:
         return radio
+
+    # Someone who has never used it: a few things to try, short enough to listen to.
+    if re.fullmatch(r"help( me)?|what can (i|you) (say|ask|do)( here)?|what (do|can) you (know|understand)|what are (the|my) (commands|options)|how does this work", t):
+        return _reply(HELP)
 
     if re.fullmatch(r"next( page)?|page down|more|keep going", t):
         return _reply("Next page.", {"type": "page", "direction": "next"})

@@ -108,6 +108,7 @@ To try the pipeline without a live feed, point `FEEDS_FILE` at a list with a `"k
 | "Next page", "close the list", "sort by altitude", "open number three" | `rules.py` | about 0.3 s |
 | "Show me the helicopters / jets / BGSU planes", "any emergencies?" | `rules.py`; the phone counts and words the reply | about 0.3 s, plus 0.2 s for its speech |
 | "Zoom the radar to 100 miles", "we're using runway one zero" | `rules.py` | about 0.4 s |
+| "Help", "what can I say?" | `rules.py`: a few things to try | about 0.3 s, plus its speech |
 | "What's that plane?" | `rules.py`, from the plane's own data | about 0.8 s (a long sentence to voice) |
 | "When does it land?", "how far has it flown?", "when did it take off?", "where is it going?" | `flightinfo.py`, from its position, speed and route | about 0.3 s |
 | "What's the weather at its destination / where it is / where it came from?" | `flightinfo.py`, live weather reports | 0.3–0.8 s |

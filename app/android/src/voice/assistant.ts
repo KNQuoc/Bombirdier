@@ -34,7 +34,7 @@ export function createAssistant(deps: AssistantDeps) {
     answer: null,
     error: null,
     name: 'Bombirdier',
-    hint: 'Tilt your head to one side to talk',
+    hint: 'Tilt your head to talk · “what can I say?”',
   };
   let recording: ActiveRecording | null = null;
   let clearTimer: ReturnType<typeof setTimeout> | undefined;

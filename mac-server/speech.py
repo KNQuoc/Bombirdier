@@ -84,3 +84,24 @@ def describe(plane: dict) -> str:
     if plane.get("emergency"):
         third += " It's declaring an emergency."
     return (first + second + third).strip()
+
+
+def aivana_trouble(code: str = "", status: int = 0) -> str:
+    """Why Aivana gave no answer, in a sentence that is true: an empty balance is not "can't reach"."""
+    if code == "no_key":
+        return "Aivana isn't set up on the Mac yet: there's no API key."
+    if status == 402 or code == "insufficient_credit":
+        return "Aivana is out of credit, so I can only answer the simple questions for now."
+    if code == "spend_limit_reached":
+        return "Aivana's spending limit has been reached, so I can only answer the simple questions for now."
+    if status == 429:
+        return "Aivana is busy right now. Ask me again in a moment."
+    if status in (401, 403):
+        return "Aivana refused the Mac's API key."
+    if code == "timeout":
+        return "Aivana took too long to answer."
+    if code == "network":
+        return "I can't reach Aivana right now."
+    if code == "empty":
+        return "Aivana didn't have an answer for that."
+    return "Aivana couldn't answer that."

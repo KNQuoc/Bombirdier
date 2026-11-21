@@ -637,5 +637,20 @@ LOGQ = [
 for text, want in LOGQ:
     check(f"log question: {text}", radiotalk.log_question(rules.normalize(text), many(), 9.5), want)
 
+# Why Aivana gave no answer: each cause has its own true sentence.
+TROUBLE = [
+    (("no_key", 0), "no API key"), (("insufficient_credit", 402), "out of credit"), (("", 402), "out of credit"),
+    (("spend_limit_reached", 429), "spending limit"), (("rate_limited", 429), "busy"), (("invalid_api_key", 401), "refused"),
+    (("timeout", 0), "too long"), (("network", 0), "can't reach"), (("empty", 0), "didn't have an answer"), (("server_error", 500), "couldn't answer"),
+]
+for (code, status), want in TROUBLE:
+    check(f"aivana trouble: {code or status}", want in speech.aivana_trouble(code, status), True)
+check("aivana trouble: only a network failure says can't reach", [c for (c, st), _ in TROUBLE if "can't reach" in speech.aivana_trouble(c, st)], ["network"])
+
+# "What can I say?" is answered at once, with nothing to do on the phone.
+for text in ("Help.", "What can I say?", "what can you do", "What can I ask?", "how does this work"):
+    check(f"help: {text}", rules.quick(text, CTX), {"answer": rules.HELP, "actions": []})
+check("help: a real question is not help", rules.quick("can you help me find the Delta", CTX), None)
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

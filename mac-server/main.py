@@ -41,7 +41,7 @@ import rules
 import transcribe
 import tts
 from prompt import SYSTEM, context_text
-from speech import describe
+from speech import aivana_trouble, describe
 from tools import REPLY_SCHEMA, validate_actions
 
 app = FastAPI(title="Bombirdier Mac server")
@@ -291,7 +291,11 @@ async def _ask_aivana(question: str, ctx: dict) -> dict:
     messages.append({"role": "user", "content": f"{context_text(ctx)}\n{flight}\n\nThe user said: {question}"})
     result = await llm.complete(messages, system=SYSTEM, schema=REPLY_SCHEMA)
     structured = result.get("structured") or {}
-    return {"answer": (structured.get("answer") or "").strip(), "actions": validate_actions(structured.get("actions"))}
+    reply = {"answer": (structured.get("answer") or "").strip(), "actions": validate_actions(structured.get("actions"))}
+    if not reply["answer"] and not reply["actions"]:
+        # Nothing to say and nothing to do would be silence in the headset: treat it as a failure.
+        raise llm.LLMError("Aivana returned no answer and no valid action", code="empty")
+    return reply
 
 
 @app.post("/api/voice/ask")
@@ -348,9 +352,10 @@ async def ask(req: AskRequest) -> dict:
             reply = await _ask_aivana(transcript, req.context)
             source = "aivana"
         except llm.LLMError as e:
-            # Still say something useful: describe the plane in view if there is one.
+            # Say why (no credit is not "can't reach"), then still something useful: the plane in view.
             focus = req.context.get("focus")
-            reply = {"answer": describe(focus) if focus else "I can't reach Aivana right now.", "actions": []}
+            why = aivana_trouble(e.code, e.status)
+            reply = {"answer": f"{why} Here's what I can see: {describe(focus)}" if isinstance(focus, dict) and focus else why, "actions": []}
             source, error = "offline", f"{e.code or e.status}: {e}"[:200]
         timings["llmMs"] = round((time.time() - llm_started) * 1000)
     if source == "aivana" and reply["answer"]:
