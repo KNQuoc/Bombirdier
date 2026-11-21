@@ -13,6 +13,7 @@ import base64
 import hmac
 import ipaddress
 import os
+import re
 import tempfile
 import time
 from collections import deque
@@ -81,6 +82,13 @@ async def guard(request: Request, call_next):
     # Everything except the health check: questions spend Aivana credit, and the radio endpoints
     # start a connection to someone else's stream.
     protected = (request.url.path.startswith("/api/") and request.url.path != "/api/health") or request.url.path == "/capture"
+    # The live audio is played by an <audio> element, which can't send the token header: it shows
+    # a one-time ticket instead (asked for, with the token, a moment earlier).
+    m = re.fullmatch(r"/api/feeds/([^/]+)/audio", request.url.path)
+    if m and request.method == "GET" and protected and not _from_this_mac(request):
+        if not radio.redeem_ticket(m.group(1), request.query_params.get("ticket", "")):
+            return JSONResponse({"error": "missing or used listening ticket"}, status_code=401)
+        return await call_next(request)
     if request.method != "OPTIONS" and protected and not _from_this_mac(request):
         sent = request.headers.get("x-bombirdier-token", "")
         if not config.SERVER_TOKEN or not hmac.compare_digest(sent.encode(), config.SERVER_TOKEN.encode()):
@@ -207,6 +215,13 @@ async def ask(req: AskRequest) -> dict:
     timings["whisperMs"] = round((time.time() - started) * 1000)
     if not transcript:
         return {"transcript": "", "answer": "I didn't catch that.", "actions": [], "source": "rules", "timings": timings}
+
+    # What only the server knows about the radio: which feeds are live, and what was just said on
+    # the one being listened to (or on any of them, if none is).
+    radio_ctx = req.context.get("radio") if isinstance(req.context.get("radio"), dict) else {}
+    connected = radio_ctx.get("connected") if isinstance(radio_ctx.get("connected"), str) else None
+    req.context["feeds"] = [{"id": f.id, "name": f.cfg.get("name", f.id), "status": f.current_status()} for f in feeds.all_feeds() if f.configured]
+    req.context["radioRecent"] = feeds.recent(connected)
 
     reply = rules.quick(transcript, req.context)
     source = "rules"

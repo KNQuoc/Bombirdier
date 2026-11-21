@@ -31,9 +31,13 @@ def state() -> str:
 
 def _prompt(callsigns: list[str], base: str = "") -> str:
     """Whisper spells better when it has seen the words: the callsigns around go into the prompt."""
-    base = base or AVIATION_PROMPT
-    names = ", ".join(c for c in callsigns[:25] if c)
-    return f"{base} Callsigns: {names}." if names else base
+    names = [c for c in callsigns[:25] if c]
+    if base:
+        # Radio calls: the names follow as more of the same kind of talk, with no label. A label gets
+        # written into transcripts ("Callsigns, 945, contact Cleveland Center" was heard on a real
+        # call whose airline name Whisper couldn't make out).
+        return f"{base} {'. '.join(names)}." if names else base
+    return f"{AVIATION_PROMPT} Callsigns: {', '.join(names)}." if names else AVIATION_PROMPT
 
 
 def transcribe(path: str, callsigns: list[str] | None = None, prompt: str = "") -> str:

@@ -9,13 +9,19 @@
                                          running: it starts on the first request and stops two minutes
                                          after the last one.
     GET  /api/radio/heard?callsign=      the latest call that named a plane
+    POST /api/feeds/{id}/listen          a short-lived ticket for the next line
+    GET  /api/feeds/{id}/audio?ticket=   the feed's audio, live, as MP3: what the phone plays when you
+                                         say "Can I access?" (an audio player can't send the token
+                                         header, hence the ticket)
 
 The phone polls /events a couple of times a second (Capacitor's native HTTP has no streaming).
 """
+import secrets
+import time
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 import config
@@ -49,6 +55,39 @@ async def push_audio(feed_id: str, request: Request):
         return JSONResponse({"error": "expected 16-bit audio, at most half a megabyte at a time"}, status_code=400)
     feed.push(pcm)
     return {"ok": True}
+
+
+# Tickets for the live audio stream: asked for with the usual credentials, good for one start.
+TICKET_TTL_S = 60
+_tickets: dict[str, tuple[str, float]] = {}
+
+
+def redeem_ticket(feed_id: str, ticket: str) -> bool:
+    """True once for a ticket issued for this feed in the last minute."""
+    now = time.time()
+    for key in [k for k, (_, until) in _tickets.items() if until < now]:
+        del _tickets[key]
+    issued = _tickets.pop(ticket, None) if ticket else None
+    return bool(issued) and issued[0] == feed_id
+
+
+@router.post("/api/feeds/{feed_id}/listen")
+async def listen_ticket(feed_id: str):
+    feed = feeds.get(feed_id)
+    if not feed or not feed.configured:
+        return JSONResponse({"error": "no such feed"}, status_code=404)
+    ticket = secrets.token_urlsafe(24)
+    _tickets[ticket] = (feed_id, time.time() + TICKET_TTL_S)
+    return {"ticket": ticket, "status": feed.current_status()}
+
+
+@router.get("/api/feeds/{feed_id}/audio")
+async def listen_audio(feed_id: str):
+    """The live audio. Who may ask is decided in main.py's guard (this Mac, or a valid ticket)."""
+    feed = feeds.get(feed_id)
+    if not feed or not feed.configured:
+        return JSONResponse({"error": "no such feed"}, status_code=404)
+    return StreamingResponse(feed.listen(), media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 class RadioContext(BaseModel):

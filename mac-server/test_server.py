@@ -171,5 +171,98 @@ check("context: says estimates", "say these are estimates" in lines[1], True)
 check("context: weather line", lines[2].startswith("Weather now at San Francisco: wind from the west"), True)
 check("opened plane is the subject when nothing is in view", F.subject({"focus": None, "opened": AAL})["callsign"], "AAL3035")
 
+# --- Radio: "Can I access?", the audio and transcript switches, what was said (radiotalk.py)
+import radiotalk  # noqa: E402
+from prompt import context_text  # noqa: E402
+
+STATIONS = [
+    {"id": "1g0-ctaf", "name": "Wood County CTAF", "feedId": "1g0-ctaf"},
+    {"id": "tol-app", "name": "Toledo Approach", "feedId": "tol-app"},
+    {"id": "dtw-app", "name": "Detroit Approach", "feedId": "dtw-app-west"},
+    {"id": "zob", "name": "Cleveland Center", "feedId": "zob-47"},
+    {"id": "nofeed", "name": "Fort Wayne Approach", "feedId": None},
+]
+FEEDS = [
+    {"id": "1g0-ctaf", "name": "Wood County CTAF", "status": "idle"},
+    {"id": "tol-app", "name": "Toledo Approach", "status": "online"},
+    {"id": "dtw-app-west", "name": "Detroit Approach", "status": "online"},
+    {"id": "zob-47", "name": "Cleveland Center", "status": "offline"},
+]
+TOLEDO = {"id": "tol-app", "name": "Toledo Approach", "freqs": ["126.1", "134.35"], "feedId": "tol-app"}
+CTAF = {"id": "1g0-ctaf", "name": "Wood County CTAF", "freqs": ["122.975"], "feedId": "1g0-ctaf"}
+
+
+def rctx(**more):
+    return {"focus": None, "radio": {"connected": None, "audio": True, "transcript": True, "stations": STATIONS}, "feeds": FEEDS, **more}
+
+
+def on(feed="tol-app", **more):
+    return rctx(radio={"connected": feed, "audio": True, "transcript": True, "stations": STATIONS}, **more)
+
+
+def said(text, ctx):
+    r = rules.quick(text, ctx)
+    return None if r is None else r["answer"]
+
+
+CONNECT_TOLEDO = [{"type": "connect_feed", "feed": "tol-app"}]
+check("access: looking at a live controller", actions("Can I access?", rctx(station=TOLEDO)), CONNECT_TOLEDO)
+check("access: says it's live", said("Can I access?", rctx(station=TOLEDO)), "Yes, Toledo Approach is live. Connecting.")
+check("access: controller not playing, nothing connects", actions("can I access", rctx(station=CTAF)), [])
+check("access: offers what is live instead", said("can I access", rctx(station=CTAF)), "Wood County CTAF isn't playing on the Mac right now. Toledo Approach is live, say connect to Toledo Approach for that.")
+check("access: by name", actions("Connect me to Toledo.", rctx()), CONNECT_TOLEDO)
+check("access: by name, other words", actions("listen to Detroit approach", rctx()), [{"type": "connect_feed", "feed": "dtw-app-west"}])
+check("access: named one wins over the one in view", actions("tune in to Detroit", rctx(station=TOLEDO)), [{"type": "connect_feed", "feed": "dtw-app-west"}])
+check("access: offline by name", actions("connect to Cleveland Center", rctx()), [])
+PLANE_ON_TOLEDO = {**SOUTHWEST, "radio": {"facility": "tol-app", "name": "Toledo Approach", "freq": "126.1", "feedId": "tol-app", "heardAgoS": 62}}
+check("access: a plane goes to its controller", actions("Can I hear this one?", rctx(focus=PLANE_ON_TOLEDO)), CONNECT_TOLEDO)
+check("access: a plane, how sure", said("can I access", rctx(focus=PLANE_ON_TOLEDO)), "It's probably on Toledo Approach, and I heard it there a minute ago. Connecting.")
+check("access: plane on a controller with no feed", actions("can I access", rctx(focus={**SOUTHWEST, "radio": {"name": "Fort Wayne Approach", "freq": None, "feedId": None, "heardAgoS": None}})), [])
+check("access: nothing in view, two live: asks which", actions("can I access", rctx()), [])
+check("access: nothing in view, two live: names them", "Toledo Approach, Detroit Approach" in said("can I access", rctx()), True)
+check("access: already on it", said("can I access", on(station=TOLEDO)), "You're already on Toledo Approach.")
+check("access: 'show me the list' is not a radio command", actions("show me the list", rctx(station=TOLEDO)), [{"type": "show_list"}])
+
+check("disconnect", actions("Disconnect.", on()), [{"type": "disconnect_feed"}])
+check("stop listening", actions("stop listening", on()), [{"type": "disconnect_feed"}])
+check("mute", actions("Mute the radio.", on()), [{"type": "radio_audio", "state": "off"}])
+check("mute by name", actions("mute Toledo", on()), [{"type": "radio_audio", "state": "off"}])
+check("unmute", actions("unmute", on()), [{"type": "radio_audio", "state": "on"}])
+check("radio on", actions("Radio on", on()), [{"type": "radio_audio", "state": "on"}])
+check("turn it down", actions("turn it down", on()), [{"type": "radio_audio", "state": "down"}])
+check("louder", actions("Louder!", on()), [{"type": "radio_audio", "state": "up"}])
+check("hide transcript", actions("hide the transcript", on()), [{"type": "transcript", "state": "hide"}])
+check("show transcript", actions("show the transcript", on()), [{"type": "transcript", "state": "show"}])
+check("transcript only", actions("transcript only", on()), [{"type": "radio_audio", "state": "off"}, {"type": "transcript", "state": "show"}])
+check("audio only", actions("audio only", on()), [{"type": "radio_audio", "state": "on"}, {"type": "transcript", "state": "hide"}])
+check("mute while not connected does nothing", actions("mute the radio", rctx()), [])
+check("mute while not connected says so", said("mute the radio", rctx()).startswith("You're not connected"), True)
+
+RECENT = [
+    {"feedId": "tol-app", "agoS": 95, "text": "Delta 1830, descend and maintain 4,000.", "callsignTokens": ["DAL1830"]},
+    {"feedId": "tol-app", "agoS": 20, "text": "November 337 Bravo Golf, radar contact.", "callsignTokens": ["N337BG"]},
+]
+check("what did they say", said("What did they just say?", on(radioRecent=RECENT)), "20 seconds ago: November 337 Bravo Golf, radar contact.")
+check("what did they say: nothing", said("what did they say", on(radioRecent=[])), "Nothing has been said on the radio in the last few minutes.")
+check("who's on frequency", said("Who's on this frequency?", on(radioRecent=RECENT)), "In the last few minutes I heard Delta 1830 and November 337 Bravo Golf.")
+check("what did they tell Delta goes to Aivana", rules.quick("what did they tell Delta", on(radioRecent=RECENT)), None)
+check("who is it talking to: heard", said("Who is it talking to?", rctx(focus=PLANE_ON_TOLEDO)), "Toledo Approach on 1 2 6 point 1. I heard it there a minute ago.")
+check("who is it talking to: guess", said("what frequency is it on", rctx(focus={**SOUTHWEST, "radio": {"name": "Cleveland Center", "freq": None, "feedId": "zob-47", "heardAgoS": None}})), "Probably Cleveland Center. I haven't heard it on the radio.")
+check("who is it talking to: nothing in view", said("who is it talking to", rctx()).startswith("Point at a plane"), True)
+check("is Toledo live", said("Is Toledo live?", rctx()), "Yes, Toledo Approach is live.")
+check("is Cleveland live", said("is cleveland center up", rctx()), "No, Cleveland Center isn't playing right now.")
+check("what's live", said("What's live?", rctx()), "Live right now: Toledo Approach, Detroit Approach.")
+check("say_freq", radiotalk.say_freq("134.35"), "1 3 4 point 3 5")
+check("ago", [radiotalk.ago(3), radiotalk.ago(42), radiotalk.ago(70), radiotalk.ago(400)], ["5 seconds ago", "40 seconds ago", "a minute ago", "7 minutes ago"])
+
+check("radio actions pass validation", tools.validate_actions([{"type": "connect_feed", "feed": "tol-app"}, {"type": "radio_audio", "state": "off"}, {"type": "transcript", "state": "hide"}, {"type": "disconnect_feed"}]),
+      [{"type": "connect_feed", "feed": "tol-app"}, {"type": "radio_audio", "state": "off"}, {"type": "transcript", "state": "hide"}, {"type": "disconnect_feed"}])
+check("radio actions: wrong state dropped", tools.validate_actions([{"type": "radio_audio", "state": "show"}, {"type": "transcript", "state": "up"}, {"type": "connect_feed"}]), [])
+text = context_text(on(station=TOLEDO, focus=PLANE_ON_TOLEDO, radioRecent=RECENT))
+check("context: feeds and which are live", "Toledo Approach (feed id tol-app, live)" in text and "Cleveland Center (feed id zob-47, not playing)" in text, True)
+check("context: connected state", "Radio: listening to Toledo Approach, audio on, transcript shown." in text, True)
+check("context: recent calls", "20 s ago: November 337 Bravo Golf, radar contact." in text, True)
+check("context: plane's controller", "probably talking to Toledo Approach 126.1, heard there 62 s ago" in text, True)
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

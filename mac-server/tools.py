@@ -6,7 +6,9 @@ the action, and (for list actions) says how many planes matched, since only it h
 Aivana's strict JSON Schema has no oneOf/anyOf, so an action is one flat object: `type` plus whichever
 of the optional fields that type uses. validate_actions() checks the combination.
 
-Phase 5 adds the radio tools (connect_feed, radio_audio, transcript, ...) to this file.
+The radio actions (connect_feed, disconnect_feed, radio_audio, transcript) switch what the phone
+plays and shows; the questions around them ("who is it talking to?", "what did they just say?") are
+answered on the server from the context, in radiotalk.py.
 """
 
 LIST_KINDS = ["jets", "props", "helicopters", "military", "medical", "emergencies"]
@@ -46,6 +48,10 @@ ACTIONS: dict[str, list[str]] = {
     "count": ["filter"],  # "how many...?" / "any...?": the phone answers with the number
     "radar_range": ["nm"],  # 0 = back to automatic
     "set_runway": ["runway"],
+    "connect_feed": ["feed"],  # start listening to a radio feed (audio + transcript); feed = its id
+    "disconnect_feed": [],
+    "radio_audio": ["state"],  # on | off | up | down: the live audio, without disconnecting
+    "transcript": ["state"],  # show | hide: the scrolling transcript, independent of the audio
 }
 
 ACTION_SCHEMA = {
@@ -62,6 +68,8 @@ ACTION_SCHEMA = {
         "n": {"type": "integer", "minimum": 1, "maximum": 8},
         "nm": {"type": "number", "minimum": 0, "maximum": 250},
         "runway": {"type": "string", "enum": RUNWAYS},
+        "feed": {"type": "string", "maxLength": 24, "description": "A radio feed id from the context"},
+        "state": {"type": "string", "enum": ["on", "off", "up", "down", "show", "hide"]},
     },
 }
 
@@ -97,6 +105,10 @@ def validate_actions(raw) -> list[dict]:
                 clean[field] = a[field]
         if "filter" in clean and not isinstance(clean["filter"], dict):
             continue
+        if kind == "radio_audio" and clean["state"] not in ("on", "off", "up", "down"):
+            continue
+        if kind == "transcript" and clean["state"] not in ("show", "hide"):
+            continue
         out.append(clean)
     return out[:4]
 
@@ -116,6 +128,10 @@ def describe_for_prompt() -> str:
 - count {filter}: for "how many ...?" or "any ...?" questions about traffic. The app counts and says the number.
 - radar_range {nm}: zoom the radar to that many nautical miles; 0 = automatic
 - set_runway {runway: 10|28|18|36|auto}: set the runway in use at Wood County by hand, or "auto" to let the app work it out from the traffic again
+- connect_feed {feed}: start playing a radio feed and showing its transcript. `feed` is a feed id from the "Radio" lines of the context, and only one that is live
+- disconnect_feed: stop listening to the radio
+- radio_audio {state: on|off|up|down}: unmute, mute or change the volume of the radio without disconnecting
+- transcript {state: show|hide}: show or hide the radio transcript, independent of the audio
 
 Filter fields (all optional): fleet "bgsu" (BGSU's trainers), kind (jets, props, helicopters, military, medical,
 emergencies), airline (ICAO code: Southwest SWA, Delta DAL, American AAL, United UAL, FedEx FDX, UPS UPS,

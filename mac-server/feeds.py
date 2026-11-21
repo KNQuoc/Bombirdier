@@ -20,6 +20,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import tempfile
 import time
 import wave
@@ -37,6 +38,8 @@ FEEDS_FILE = Path(os.environ.get("FEEDS_FILE") or config.HERE / "feeds.json")
 STOP_AFTER_IDLE_S = 120
 RECONNECT_AFTER_S = 30
 ONLINE_WITHIN_S = 15  # audio arrived this recently = the feed is up
+LISTENER_QUEUE = 40  # chunks waiting for one listener's encoder (10 s of a tab feed)
+LISTEN_IDLE_S = 20  # a listener's stream ends after this long with no audio arriving at all
 LEVELS_KEPT = 300  # a bit over a minute of pushed chunks
 TAB_ONLINE_WITHIN_S = 5  # a captured tab sends audio constantly; a gap this long means capture stopped
 EVENTS_KEPT = 200
@@ -45,7 +48,10 @@ READ_BYTES = 4800  # 150 ms
 BACKLOG_MAX = 4  # calls waiting for Whisper; older ones are dropped rather than fall behind
 CHECK_TIMEOUT_S = 6
 
-_event_id = 0
+# Call ids only ever go up, across restarts too: the phone and the capture page ask for "everything
+# after id N", and a counter that started again at 1 would hide every new call from them until it
+# caught up with their N. (Seen live: a restart made real calls invisible on the capture page.)
+_event_id = int(time.time() * 1000)
 
 
 def _next_event_id() -> int:
@@ -93,6 +99,8 @@ class Feed:
         # How loud each recent chunk of pushed audio was: tells a quiet frequency (the feed's own
         # background, or digital silence) from a tab whose sound isn't coming through at all.
         self._levels: deque[tuple[float, float]] = deque(maxlen=LEVELS_KEPT)
+        # People listening to this feed on the phone: each gets the audio as it arrives.
+        self._listeners: set[asyncio.Queue] = set()
 
     @property
     def configured(self) -> bool:
@@ -110,9 +118,57 @@ class Feed:
         self.error = ""
         self.last_audio_at = now
         self.audio.append(pcm)
+        self._fan_out(pcm)
         self._levels.append((now, _rms(pcm)))
         for call in self._splitter.feed(pcm):
             self._queue(call)
+
+    def _fan_out(self, pcm: bytes) -> None:
+        for queue in self._listeners:
+            if queue.full():
+                queue.get_nowait()  # a listener that can't keep up loses the oldest audio, not the newest
+            queue.put_nowait(pcm)
+
+    async def listen(self):
+        """This feed's audio from now on, as an MP3 stream (what the phone's audio player is given).
+
+        One small ffmpeg per listener, fed from the audio already arriving here: listening adds no
+        connection to the feed's source, and nothing is stored.
+        """
+        queue: asyncio.Queue = asyncio.Queue(maxsize=LISTENER_QUEUE)
+        self._listeners.add(queue)
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer",
+            "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", "pipe:0",
+            "-c:a", "libmp3lame", "-b:a", "32k", "-flush_packets", "1", "-f", "mp3", "pipe:1",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )  # fmt: skip
+
+        async def pump() -> None:
+            try:
+                while True:
+                    proc.stdin.write(await queue.get())
+                    await proc.stdin.drain()
+            except (ConnectionError, asyncio.CancelledError):
+                pass
+
+        pumping = asyncio.create_task(pump())
+        try:
+            while True:
+                self.use()  # someone listening keeps a stream feed connected
+                try:
+                    data = await asyncio.wait_for(proc.stdout.read(4096), timeout=LISTEN_IDLE_S)
+                except asyncio.TimeoutError:
+                    break  # nothing arriving at all (capture stopped): end rather than hang forever
+                if not data:
+                    break
+                yield data
+        finally:
+            self._listeners.discard(queue)
+            pumping.cancel()
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
 
     def describe(self) -> dict:
         return {
@@ -192,6 +248,7 @@ class Feed:
                 self.error = ""
                 self.last_audio_at = time.time()
                 self.audio.append(chunk)
+                self._fan_out(chunk)
                 for call in splitter.feed(chunk):
                     self._queue(call)
             if proc.returncode is None and proc.stdout.at_eof():
@@ -223,7 +280,8 @@ class Feed:
         finally:
             self._backlog -= 1
             os.unlink(path)  # calls are never kept
-        if not text:
+        # Noise sometimes comes back as a stray mark ("!") rather than nothing: that isn't a call.
+        if not re.search(r"[A-Za-z]{2}", text):
             return
         parsed = radio_parse.parse(text)
         event = {"id": _next_event_id(), "feedId": self.id, "ts": heard_at, "text": text, "seconds": round(len(call) / (SAMPLE_RATE * 2), 1), **parsed}
@@ -297,6 +355,15 @@ async def idle_watch() -> None:
         for feed in all_feeds():
             if feed._task and not feed._task.done() and time.time() - feed.last_used_at >= STOP_AFTER_IDLE_S:
                 await feed.stop()
+
+
+def recent(feed_id: str | None, within_s: float = 300, limit: int = 12) -> list[dict]:
+    """The latest calls on one feed (or on all of them), oldest first: for "what did they just say?"."""
+    wanted = [get(feed_id)] if feed_id else all_feeds()
+    now = time.time()
+    events = [e for f in wanted if f for e in f.events if now - e["ts"] <= within_s]
+    events.sort(key=lambda e: e["id"])
+    return [{"feedId": e["feedId"], "agoS": round(now - e["ts"]), "text": e["text"], "callsignTokens": e["callsignTokens"]} for e in events[-limit:]]
 
 
 def heard(callsign: str) -> dict | None:

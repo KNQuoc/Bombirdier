@@ -9,6 +9,7 @@ Patterns are deliberately narrow: a near miss should go to Aivana, not be half-u
 """
 import re
 
+import radiotalk
 from speech import describe
 
 NUMBER_WORDS = {
@@ -60,6 +61,10 @@ def quick(text: str, context: dict) -> dict | None:
     t = re.sub(r"\s+(please|now|for me)$", "", t)
     if not t:
         return None
+
+    radio = radiotalk.quick(t, context)
+    if radio:
+        return radio
 
     if re.fullmatch(r"next( page)?|page down|more|keep going", t):
         return _reply("Next page.", {"type": "page", "direction": "next"})

@@ -18,6 +18,8 @@ How to answer:
 - "That plane", "it", "this one" mean the plane under "Looking at" (or "Opened from the list" if nothing is being looked at).
 - Arrival and departure times in the context are estimates from the plane's position and speed. Say "about" and
   never present them as the airline's schedule. Weather lines are real current reports.
+- Radio calls in the context are machine transcripts of live air traffic control. When asked what was said, put it
+  in plain English and say if you're unsure of a word. "Probably talking to" is a guess from the plane's position.
 - A helicopter is a helicopter, never a plane. Mention emergency, military or medical status when it's there.
 
 {describe_for_prompt()}
@@ -51,7 +53,40 @@ def _plane_line(p: dict) -> str:
     for flag in ("emergency", "military", "medical"):
         if p.get(flag):
             bits.append(flag if flag != "emergency" else f"EMERGENCY ({p[flag]})")
+    radio = p.get("radio") or {}
+    if radio.get("name"):
+        heard = f", heard there {radio['heardAgoS']} s ago" if radio.get("heardAgoS") is not None else ", not heard on the radio"
+        bits.append(f"probably talking to {radio['name']}{' ' + str(radio['freq']) if radio.get('freq') else ''}{heard}")
     return ", ".join(bits)
+
+
+def _radio_lines(ctx: dict) -> list[str]:
+    """The radio as the assistant should know it: what's live, what the user is on, what was just said."""
+    lines: list[str] = []
+    feeds = {f.get("id"): f for f in ctx.get("feeds") or []}
+    radio = ctx.get("radio") or {}
+    stations = radio.get("stations") or []
+    if stations:
+        parts = []
+        for s in stations:
+            state = (feeds.get(s.get("feedId")) or {}).get("status")
+            parts.append(f"{s.get('name')} (feed id {s.get('feedId')}, {'live' if state == 'online' else 'not playing'})" if s.get("feedId") else f"{s.get('name')} (no feed)")
+        lines.append("Radio feeds: " + "; ".join(parts) + ".")
+    station = ctx.get("station")
+    if station:
+        lines.append(f"Looking at the controller: {station.get('name')}, frequencies {', '.join(map(str, station.get('freqs') or []))}.")
+    connected = radio.get("connected")
+    if connected:
+        name = (feeds.get(connected) or {}).get("name") or connected
+        lines.append(f"Radio: listening to {name}, audio {'on' if radio.get('audio') else 'muted'}, transcript {'shown' if radio.get('transcript') else 'hidden'}.")
+    elif stations:
+        lines.append("Radio: not connected to a frequency.")
+    recent = ctx.get("radioRecent") or []
+    if recent:
+        where = "on that frequency" if connected else "on the radio (all feeds)"
+        lines.append(f"Recent calls {where}, oldest first (machine transcripts, may contain errors):")
+        lines += [f"  {e.get('agoS')} s ago{'' if connected else ' on ' + str((feeds.get(e.get('feedId')) or {}).get('name') or e.get('feedId'))}: {e.get('text')}" for e in recent[-8:]]
+    return lines
 
 
 def context_text(ctx: dict) -> str:
@@ -84,4 +119,5 @@ def context_text(ctx: dict) -> str:
             lines.append(f"Opened from the list: {lst['opened']}")
     else:
         lines.append("Plane list: closed.")
+    lines += _radio_lines(ctx)
     return "\n".join(lines)
