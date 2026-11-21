@@ -16,5 +16,5 @@ Personal project by Kien, built on Jaiden Lee's **SkyLens** ([jaiden-lee/ar-plan
 | `web/` | Shared HUD, geometry, stereo view, orientation (also the original web app) |
 | `flight-service/` | Original Python flight service (kept for normalization parity checks) |
 | `voice-service/` | Original voice service (its prompt seeds the Phase 3 assistant) |
-| `mac-server/` | *(Phase 3+)* FastAPI server on the Mac: Whisper, Aivana, LiveATC feeds |
+| `mac-server/` | FastAPI server on the Mac: Whisper speech-to-text and the Aivana assistant (LiveATC feeds come in Phase 4) |
 | `docs/` | Plan and reference docs |

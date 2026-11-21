@@ -52,7 +52,7 @@ body {
 
 .fields {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 160px));
+  grid-template-columns: repeat(3, minmax(0, 220px));
   gap: 10px 16px;
   justify-content: center;
   width: 100%;

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Mac server (voice assistant) is plain http: http://localhost:8787 over USB (adb reverse), or the
+     Mac's LAN address over Wi-Fi. Android blocks cleartext by default, so it is allowed here. A personal
+     app on your own network; adsb.lol and the route files are still https. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

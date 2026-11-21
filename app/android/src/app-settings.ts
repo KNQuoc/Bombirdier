@@ -9,9 +9,15 @@ export type AppSettings = {
   wideTraffic: WideMode;
   /** Runway in use at Wood County ("28"): decides which traffic pattern is drawn and how legs are named. */
   activeRunway: string;
+  /** Where the Mac server (voice assistant) is. The default works over USB after `adb reverse tcp:8787 tcp:8787`. */
+  serverUrl: string;
 };
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { wideTraffic: 'on', activeRunway: WOOD_COUNTY.defaultRunway };
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  wideTraffic: 'on',
+  activeRunway: WOOD_COUNTY.defaultRunway,
+  serverUrl: 'http://localhost:8787',
+};
 
 const STORAGE_KEY = 'bombirdier-settings-v1';
 const WIDE_MODES: WideMode[] = ['on', 'wifi', 'off'];
@@ -22,6 +28,7 @@ export function loadAppSettings(): AppSettings {
     return {
       wideTraffic: WIDE_MODES.includes(saved.wideTraffic as WideMode) ? saved.wideTraffic! : DEFAULT_APP_SETTINGS.wideTraffic,
       activeRunway: WOOD_COUNTY.runways.some((r) => r.ident === saved.activeRunway) ? saved.activeRunway! : DEFAULT_APP_SETTINGS.activeRunway,
+      serverUrl: typeof saved.serverUrl === 'string' && /^https?:\/\//.test(saved.serverUrl) ? saved.serverUrl : DEFAULT_APP_SETTINGS.serverUrl,
     };
   } catch {
     return { ...DEFAULT_APP_SETTINGS };

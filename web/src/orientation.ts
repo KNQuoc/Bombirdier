@@ -19,6 +19,11 @@ export type OrientationSource = 'sensor' | 'absolute-event' | 'relative-event' |
 export type OrientationReading = {
   headingDeg: number;
   pitchDeg: number;
+  /**
+   * Sideways head tilt in degrees for a phone held in landscape (as in a headset): 0 = level,
+   * +/- = one end of the phone higher than the other. About +/-90 when the phone is upright in portrait.
+   */
+  rollDeg: number;
   source: OrientationSource;
 };
 
@@ -72,6 +77,8 @@ export async function requestOrientationPermission(): Promise<void> {
  */
 export function startOrientation(forceEvents = false): OrientationTracker {
   let smoothed: Vec3 | null = null;
+  /** Up-component of the device's long (Y) axis, smoothed: its arcsine is the sideways tilt in landscape. */
+  let smoothedLongAxisUp: number | null = null;
   let rotation: number[] | null = null;
   let source: OrientationSource = 'none';
   let sensorReadings = 0;
@@ -93,6 +100,8 @@ export function startOrientation(forceEvents = false): OrientationTracker {
           smoothed[2] + (v[2] - smoothed[2]) * SMOOTHING,
         ]
       : v;
+    // The device Y axis in ENU is the 2nd column of R; r[7] is how much it points up.
+    smoothedLongAxisUp = smoothedLongAxisUp == null ? r[7] : smoothedLongAxisUp + (r[7] - smoothedLongAxisUp) * SMOOTHING;
   };
 
   const useEvents = () => {
@@ -140,6 +149,7 @@ export function startOrientation(forceEvents = false): OrientationTracker {
       return {
         headingDeg: normalizeDeg(toDeg(Math.atan2(e, n)) + MAG_DECLINATION_DEG),
         pitchDeg: toDeg(Math.asin(Math.max(-1, Math.min(1, u / len)))),
+        rollDeg: toDeg(Math.asin(Math.max(-1, Math.min(1, smoothedLongAxisUp ?? 0)))),
         source,
       };
     },

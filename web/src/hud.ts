@@ -29,6 +29,10 @@ export type VoiceHud = {
   transcript: string | null;
   answer: string | null;
   error: string | null;
+  /** The assistant's name on the "speaking" pill. Default "Grok". */
+  name?: string;
+  /** Idle hint shown for the first seconds. Default: Say "Hey Grok…". */
+  hint?: string;
 };
 
 /** Planes the viewer is looking at this frame (offsetDeg filled in), for voice context. */
@@ -563,9 +567,9 @@ function drawVoice(ctx: CanvasRenderingContext2D, w: number, h: number, v: Voice
   const pulse = 0.5 + 0.5 * Math.sin(timeMs / 180);
   if (v.state === 'listening') pill(ctx, w / 2, bottom, 'Listening…', `rgba(255, 82, 82, ${0.5 + 0.5 * pulse})`);
   else if (v.state === 'thinking') pill(ctx, w / 2, bottom, `Thinking${'.'.repeat(1 + (Math.floor(timeMs / 300) % 3))}`, COLORS.hud);
-  else if (v.state === 'speaking') pill(ctx, w / 2, bottom, 'Grok', COLORS.focus);
+  else if (v.state === 'speaking') pill(ctx, w / 2, bottom, v.name ?? 'Grok', COLORS.focus);
   else if (!v.answer && !v.error && timeMs - voiceStartMs < HINT_MS) {
-    label(ctx, w / 2, bottom, 'Say “Hey Grok…”', fs(10), 'rgba(255,255,255,0.6)', 'center');
+    label(ctx, w / 2, bottom, v.hint ?? 'Say “Hey Grok…”', fs(10), 'rgba(255,255,255,0.6)', 'center');
   }
 }
 

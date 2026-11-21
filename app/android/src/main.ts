@@ -21,7 +21,8 @@ import { halfFovDeg, normalizeDeg, visibleHalfTan } from '@web/geo';
 import { drawHud } from '@web/hud';
 import { MAG_DECLINATION_DEG, startOrientation } from '@web/orientation';
 import type { OrientationTracker } from '@web/orientation';
-import type { HudState } from '@web/hud';
+import type { HudResult, HudState } from '@web/hud';
+import type { Plane } from '@web/planes';
 import { createStereoView } from '@web/stereo';
 import type { StereoView } from '@web/stereo';
 import { lensFov } from './camera-fov';
@@ -40,6 +41,11 @@ import { drawList, hitList } from './list/draw';
 import { createList } from './list/list';
 import { createPatternTracker, legCode, legLabel } from './pattern/classify';
 import { createAirportView } from './pattern/overlay';
+import { createAssistant } from './voice/assistant';
+import { requestMicrophone } from './voice/recorder';
+import { createServer } from './voice/server';
+import type { AskResponse, ServerHealth } from './voice/server';
+import { createTiltTrigger } from './voice/tilt';
 import { startTraffic } from './traffic/traffic';
 import type { Traffic } from './traffic/traffic';
 import type { WideMode } from './traffic/wide';
@@ -78,6 +84,7 @@ const cameraSelect = document.getElementById('camera-select') as HTMLSelectEleme
 const radiusInput = document.getElementById('radius-input') as HTMLInputElement;
 const wideSelect = document.getElementById('wide-select') as HTMLSelectElement;
 const runwaySelect = document.getElementById('runway-select') as HTMLSelectElement;
+const serverInput = document.getElementById('server-input') as HTMLInputElement;
 const listBtn = document.getElementById('list-btn') as HTMLButtonElement;
 const doneBtn = document.getElementById('done-btn') as HTMLButtonElement;
 const calibrateBtn = document.getElementById('calibrate-btn') as HTMLButtonElement;
@@ -148,11 +155,12 @@ async function initSettings() {
   wideSelect.value = appSettings.wideTraffic;
   runwaySelect.replaceChildren(...AIRPORT.runways.map((r) => new Option(`${r.ident} (${r.patternSide} pattern)`, r.ident)));
   runwaySelect.value = appSettings.activeRunway;
+  serverInput.value = appSettings.serverUrl;
   await refreshCameraList();
 
   if (DEV) {
     settingsStatus.textContent =
-      'Dev mode: ← → turn, ↑ ↓ look up/down (Shift = 10°) · L list · PgUp/PgDn page · F filter presets · 1–8 open row · Esc back · R radar range.';
+      'Dev mode: ← → turn, ↑ ↓ look up/down (Shift = 10°) · V talk · L list · PgUp/PgDn page · F filter presets · 1–8 open row · Esc back · R radar range.';
   }
 }
 
@@ -181,7 +189,14 @@ function readSettingsFromForm() {
   };
   radiusInput.value = settings.radiusKm == null ? '' : String(settings.radiusKm);
   saveSettings(settings);
-  appSettings = { ...appSettings, wideTraffic: wideSelect.value as WideMode, activeRunway: runwaySelect.value || appSettings.activeRunway };
+  const serverUrl = serverInput.value.trim();
+  appSettings = {
+    ...appSettings,
+    wideTraffic: wideSelect.value as WideMode,
+    activeRunway: runwaySelect.value || appSettings.activeRunway,
+    serverUrl: /^https?:\/\//.test(serverUrl) ? serverUrl : 'http://localhost:8787',
+  };
+  serverInput.value = appSettings.serverUrl;
   saveAppSettings(appSettings);
 }
 
@@ -242,6 +257,115 @@ const list = createList({
   noteFor: legNote,
 });
 
+// ---- Voice assistant (Phase 3): head-tilt -> record -> Mac server -> speak ----
+
+/** What the last frame showed: the plane in the middle of the view and the others on the compass. */
+let lastHud: HudResult = { focus: null, inView: [] };
+/** Is the Mac server there? Checked every few seconds while the view is open; null = not reachable. */
+let serverHealth: ServerHealth | null = null;
+let lastExchange: AskResponse | null = null;
+
+/** The fields of a plane the assistant gets (the rest is noise to a language model). */
+function brief(p: Plane) {
+  return {
+    id: p.id,
+    callsign: p.callsign,
+    registration: p.registration,
+    typeCode: p.typeCode,
+    typeName: p.typeName,
+    airline: p.airline,
+    origin: p.origin,
+    destination: p.destination,
+    kind: p.kind,
+    altitudeFt: p.altitudeFt,
+    verticalRateFpm: p.verticalRateFpm,
+    groundSpeedKt: p.groundSpeedKt,
+    distanceKm: Math.round(p.distanceKm * 10) / 10,
+    bearingDeg: Math.round(p.bearingDeg),
+    onGround: p.onGround,
+    emergency: p.emergency,
+    military: p.military,
+    medical: p.medical,
+    tag: p.tag,
+    leg: legNote(p.id),
+  };
+}
+
+/** Everything the assistant should know about this moment. Built when a question is asked, not per frame. */
+function voiceContext() {
+  const all = traffic?.all() ?? [];
+  const runway = runwayEnd(AIRPORT, appSettings.activeRunway);
+  const viewer = gps?.get() ?? null;
+  const listView = list.view();
+  return {
+    focus: lastHud.focus ? brief(lastHud.focus) : null,
+    inView: [...lastHud.inView].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 5).map(brief),
+    // The home fleet, wherever it is: "are any BGSU planes up?" shouldn't depend on where you're looking.
+    bgsu: all.filter((p) => p.tag === 'BGSU').sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 5).map(brief),
+    airport: {
+      ident: AIRPORT.ident,
+      name: AIRPORT.name,
+      activeRunway: runway.ident,
+      patternSide: runway.patternSide,
+      tpaFtMsl: AIRPORT.tpaFtMsl,
+      elevationFt: AIRPORT.elevationFt,
+      distanceKm: viewer ? airportView(viewer, runway.ident)?.distanceKm ?? null : null,
+    },
+    traffic: { total: all.length, radiusNm: WIDE_RADIUS_NM },
+    list: listView
+      ? {
+          open: true,
+          filter: list.state().filter,
+          matched: listView.matched.length,
+          page: listView.page + 1,
+          pages: listView.pages,
+          rows: listView.rows.map((r) => ({ n: r.n, name: r.plane.callsign ?? r.plane.registration ?? r.plane.id, type: r.plane.typeCode })),
+          opened: listView.opened ? (listView.opened.plane.callsign ?? listView.opened.plane.registration) : null,
+        }
+      : { open: false },
+  };
+}
+
+const macServer = createServer(() => appSettings.serverUrl);
+const assistant = createAssistant({
+  server: macServer,
+  context: voiceContext,
+  actions: {
+    list,
+    setRadarRangeKm: (km) => (radarRangeKm = km),
+    setRunway: (ident) => {
+      if (!AIRPORT.runways.some((r) => r.ident === ident)) return false;
+      appSettings = { ...appSettings, activeRunway: ident };
+      saveAppSettings(appSettings);
+      runwaySelect.value = ident;
+      return true;
+    },
+    coverageNm: () => WIDE_RADIUS_NM,
+  },
+  onExchange: (r) => {
+    lastExchange = r;
+    if (mode === 'info') renderOverlay();
+  },
+});
+/** Tip your head to one side and hold: start a question. Only while the Mac server is reachable. */
+const tilt = createTiltTrigger(() => {
+  if (serverHealth) void assistant.listen();
+});
+
+async function checkServer() {
+  if (!view || suspended) return;
+  serverHealth = await macServer.health();
+}
+
+/** The voice line of the info display: is the server there, and how the last question went. */
+function voiceInfo(): string {
+  if (!serverHealth) return `voice: Mac server not reachable at ${macServer.url()}`;
+  const parts = [`voice: server ok, whisper ${serverHealth.whisper}${serverHealth.aivana ? '' : ', no Aivana key'}`];
+  const t = lastExchange?.timings;
+  if (lastExchange && t) parts.push(`last: ${lastExchange.source} ${t.totalMs ?? '?'} ms (whisper ${t.whisperMs ?? 0}${t.llmMs ? `, llm ${t.llmMs}` : ''})`);
+  return parts.join(' · ');
+}
+
 /** Per-frame: compute the visible FOV and draw the HUD canvas in both eyes. */
 function frame() {
   if (!view) return;
@@ -284,7 +408,8 @@ function frame() {
     planes,
     status: feedState?.status ?? '',
     timeMs: performance.now(),
-    voice: null,
+    // Subtitles only while there's something to show: the hint, a question in progress, an answer.
+    voice: serverHealth || assistant.busy() ? assistant.hud() : null,
     pitchDeg: currentPitch(),
     viewerAltM: viewerAltM(),
     // At the field the radar zooms in on the pattern (unless a range was asked for); the list's
@@ -312,9 +437,11 @@ function frame() {
   listBtn.classList.toggle('on', !!listView);
   // Both eyes get identical input (required for the images to fuse).
   for (const eye of view.eyes) {
-    lastFocusId = drawHud(eye.ctx, width, height, hud).focus?.id ?? null;
+    lastHud = drawHud(eye.ctx, width, height, hud);
+    lastFocusId = lastHud.focus?.id ?? null;
     if (listView && showPanel) drawList(eye.ctx, width, height, listView, hud.headingDeg, hud.timeMs);
   }
+  if (!DEV) tilt.update(orientation?.get()?.rollDeg ?? null, hud.timeMs);
 }
 
 /** DOM overlay: crosshair, calibration toast, errors, debug line. Redrawn on events, not per frame. */
@@ -332,6 +459,7 @@ function renderOverlay() {
     const lensInfo = lens ? `camera ${lens.cameraId} ${Math.round(halfFovDeg(lens.halfTan1x) * 2)}°` : 'assumed';
     const screenInfo = screenMm ? `screen ${Math.round(screenMm)}mm` : `screen ~${FALLBACK.screenWidthMm}mm assumed`;
     debug = `<div class="debug">${hdg} · ${decl} · fov ${Math.round(lastHalfFovDeg * 2)}° (lens ${lensInfo}) · ${traffic?.near.get().status ?? ''} · ${wideInfo()}<br>
+      ${voiceInfo()}<br>
       ${screenInfo} · tilt ${settings.tiltDeg}° · ${settings.ipdMm}mm · shift ${settings.offsetMm}mm · ${Math.round(settings.viewScale * 100)}% · ${stream ? describeStream(stream) : 'no camera'}</div>`;
   }
   const error = hudError ? `<div class="hud-error">${hudError}</div>` : '';
@@ -408,6 +536,8 @@ async function start() {
       stream = null; // Dev mode works without a camera.
     }
 
+    // The microphone prompt has to come now, while the phone is still in your hand.
+    if (!DEV) await requestMicrophone();
     startTracking();
     view = createStereoView(stereoEl, stream);
     mode = null;
@@ -423,6 +553,7 @@ async function start() {
       : 'Location permission denied: the app needs GPS to find planes near you. Allow it in Android Settings → Apps → Bombirdier → Permissions.';
     relayout();
     rafId = requestAnimationFrame(frame);
+    void checkServer();
     if (stream) {
       identifyLens(stream);
       watchForFrames(stream);
@@ -464,6 +595,7 @@ function suspend() {
   if (!view || suspended) return;
   suspended = true;
   cancelAnimationFrame(rafId);
+  assistant.cancel();
   stopCamera();
   stopTracking();
 }
@@ -502,6 +634,7 @@ async function resume() {
 function openSettings() {
   cancelAnimationFrame(rafId);
   clearTimeout(lockTimer);
+  assistant.cancel();
   stopCamera();
   stopTracking();
   suspended = false;
@@ -707,8 +840,11 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight') devHeading = normalizeDeg(devHeading + step);
   else if (e.key === 'ArrowUp') devPitch = Math.min(89, devPitch + step);
   else if (e.key === 'ArrowDown') devPitch = Math.max(-89, devPitch - step);
-  // The list, until voice control exists (Phase 3).
-  else if (e.key === 'l' || e.key === 'L') toggleList();
+  // V = ask a question (again = stop and send). The list keys work without the Mac server.
+  else if (e.key === 'v' || e.key === 'V') {
+    if (assistant.busy()) assistant.finish();
+    else void assistant.listen();
+  } else if (e.key === 'l' || e.key === 'L') toggleList();
   else if (e.key === 'r' || e.key === 'R') {
     radarRangeKm = DEV_RADAR_RANGES_KM[(DEV_RADAR_RANGES_KM.indexOf(radarRangeKm) + 1) % DEV_RADAR_RANGES_KM.length];
   } else if (!list.isOpen()) return;
@@ -732,6 +868,10 @@ handlePauseResume(suspend, resume);
 setInterval(() => {
   if (view && mode === 'info') renderOverlay();
 }, 500);
+// Is the Mac server there? (Head-tilt only listens when it is.)
+setInterval(checkServer, 8000);
+// Desktop testing without a microphone: bombirdier.ask('show me the helicopters') in the console.
+if (DEV) (window as any).bombirdier = { ask: (text: string) => assistant.askText(text), listen: () => assistant.listen(), context: voiceContext };
 
 // Straight into the view on launch; settings only show if it can't start (e.g. camera denied).
 initSettings().then(start);
