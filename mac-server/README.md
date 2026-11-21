@@ -32,7 +32,7 @@ The first start downloads the Whisper model (about 1.6 GB) and the Kokoro voice 
 
 It listens on `http://127.0.0.1:8787`, this Mac only.
 
-- **USB (simplest):** with the phone plugged in, run `adb reverse tcp:8787 tcp:8787`. The app's default server address (`http://localhost:8787`) then reaches the Mac. Run it again after reconnecting the cable.
+- **USB (simplest):** plug the phone in. `run.sh` keeps `adb reverse tcp:8787 tcp:8787` applied (Android drops it whenever the cable reconnects, so the script re-applies it every few seconds), and the app's default server address (`http://localhost:8787`) then reaches the Mac.
 - **Wi-Fi:** start with `HOST=0.0.0.0 ./run.sh`, set Settings → Mac server in the app to `http://<the Mac's IP>:8787`, and set the same long random string as `BOMBIRDIER_TOKEN` in `.env` and as Settings → Server token in the app (`openssl rand -hex 24` makes one). Without the token, questions from other machines are refused: the server can spend your Aivana credit, so it doesn't answer whoever finds it on the network. The token travels over plain http, so this is for a home network you trust, not a public one.
 
 Who the server listens to:
