@@ -43,6 +43,8 @@ import { createList } from './list/list';
 import { createPatternTracker, legCode, legLabel } from './pattern/classify';
 import { createAirportView } from './pattern/overlay';
 import { createRunwayDetector } from './pattern/runway';
+import { drawRadio } from './radio/draw';
+import { createRadio } from './radio/radio';
 import { createAssistant } from './voice/assistant';
 import { requestMicrophone } from './voice/recorder';
 import { createServer } from './voice/server';
@@ -88,6 +90,7 @@ const wideSelect = document.getElementById('wide-select') as HTMLSelectElement;
 const runwaySelect = document.getElementById('runway-select') as HTMLSelectElement;
 const serverInput = document.getElementById('server-input') as HTMLInputElement;
 const tokenInput = document.getElementById('token-input') as HTMLInputElement;
+const radioSelect = document.getElementById('radio-select') as HTMLSelectElement;
 const listBtn = document.getElementById('list-btn') as HTMLButtonElement;
 const doneBtn = document.getElementById('done-btn') as HTMLButtonElement;
 const calibrateBtn = document.getElementById('calibrate-btn') as HTMLButtonElement;
@@ -163,6 +166,7 @@ async function initSettings() {
   runwaySelect.value = appSettings.activeRunway;
   serverInput.value = appSettings.serverUrl;
   tokenInput.value = appSettings.serverToken;
+  radioSelect.value = appSettings.radioCalls ? 'on' : 'off';
   await refreshCameraList();
 
   if (DEV) {
@@ -204,6 +208,7 @@ function readSettingsFromForm() {
     activeRunwayChosen: (runwaySelect.value || appSettings.activeRunway) !== AUTO_RUNWAY,
     serverUrl: /^https?:\/\//.test(serverUrl) ? serverUrl : 'http://localhost:8787',
     serverToken: tokenInput.value.trim(),
+    radioCalls: radioSelect.value !== 'off',
   };
   serverInput.value = appSettings.serverUrl;
   saveAppSettings(appSettings);
@@ -389,6 +394,16 @@ const assistant = createAssistant({
     if (mode === 'info') renderOverlay();
   },
 });
+/**
+ * Radio calls (Phase 4): the Mac transcribes a live ATC feed, and a call that names a plane lights
+ * that plane up for a few seconds with the call as a subtitle.
+ */
+const radio = createRadio({
+  server: macServer,
+  planes: () => traffic?.all() ?? [],
+  serverUp: () => !!serverHealth,
+});
+
 /** Start a question, or say on the HUD why that isn't possible. */
 function talk(how: string) {
   console.info(`[voice] ${how}; Mac server ${serverHealth ? 'reachable' : 'NOT reachable'}`);
@@ -415,7 +430,7 @@ function voiceInfo(): string {
   if (lastExchange && t) {
     parts.push(`last: ${lastExchange.source} ${t.totalMs ?? '?'} ms (whisper ${t.whisperMs ?? 0}${t.llmMs ? `, llm ${t.llmMs}` : ''}${t.ttsMs ? `, voice ${t.ttsMs}` : ''})`);
   }
-  return parts.join(' · ') + tilted + ` · RWY ${runwayInUse()} (${runwaySource()})`;
+  return parts.join(' · ') + tilted + ` · RWY ${runwayInUse()} (${runwaySource()}) · ${radio.describe()}`;
 }
 
 /** Per-frame: compute the visible FOV and draw the HUD canvas in both eyes. */
@@ -451,10 +466,13 @@ function frame() {
   const legCodes: Record<string, string> = {};
   const planes = nearPlanes.map((p) => {
     const leg = pattern.legOf(p.id)?.leg;
-    if (!leg) return p;
-    const code = legCode(leg);
+    // What the plane itself said on the radio, next to what the app worked out: a mismatch is worth seeing.
+    const said = radio.reportedLeg(p.id);
+    if (!leg && !said) return p;
+    const code = leg && legCode(leg);
     if (code) legCodes[p.id] = code;
-    return { ...p, note: legLabel(leg, runwayEnd(AIRPORT, activeRunway)) };
+    const note = [leg && legLabel(leg, runwayEnd(AIRPORT, activeRunway)), said && `📻 said ${said}`].filter(Boolean).join(' · ');
+    return { ...p, note };
   });
   const viewer = gps?.get() ?? null;
   const field = viewer ? airportView(viewer, activeRunway) : null;
@@ -479,6 +497,9 @@ function frame() {
   // plane) and the regular card under its bracket takes over until you look away.
   const lookingAtOpened = !!opened && opened.inAr && lastFocusId === opened.plane.id;
   const showPanel = !!listView && !lookingAtOpened;
+  // Planes just named on the radio get the same pulsing ring as a plane opened from the list.
+  const heard = radio.highlightIds();
+  if (heard.length) hud.highlightIds = heard;
   if (listView) {
     // The list's panel takes the card's place, and the radar shows what the list holds.
     hud.showCard = !showPanel;
@@ -486,11 +507,12 @@ function frame() {
     const openedShown = !opened || opened.lost || listView.matched.some((p) => p.id === opened.plane.id);
     hud.radarPlanes = openedShown ? listView.matched : [...listView.matched, opened!.plane];
     if (opened && !opened.lost) {
-      hud.highlightIds = [opened.plane.id];
+      hud.highlightIds = [...new Set([opened.plane.id, ...heard])];
       if (opened.inAr) hud.guideId = opened.plane.id;
     }
   }
   // The list's left edge runs through the middle of the view: no crosshair while it's open.
+  const radioCall = radio.latest();
   stereoEl.classList.toggle('list-open', showPanel);
   listBtn.classList.toggle('on', !!listView);
   // Both eyes get identical input (required for the images to fuse).
@@ -498,6 +520,7 @@ function frame() {
     lastHud = drawHud(eye.ctx, width, height, hud);
     lastFocusId = lastHud.focus?.id ?? null;
     if (listView && showPanel) drawList(eye.ctx, width, height, listView, hud.headingDeg, hud.timeMs);
+    if (radioCall) drawRadio(eye.ctx, width, height, radioCall, traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM);
   }
   if (!DEV) tilt.update(orientation?.get()?.rollDeg ?? null, hud.timeMs);
 }
@@ -547,11 +570,13 @@ function startTracking() {
   const watch = DEV_AT ? fixedPosition(DEV_AT) : watchPosition((pos) => updateFieldModel(pos.lat, pos.lon));
   gps = watch;
   traffic = startTraffic({ arRadiusKm: settings.radiusKm, wideMode: appSettings.wideTraffic, getPosition: watch.get });
+  if (appSettings.radioCalls) radio.start();
 }
 
 function stopTracking() {
   orientation?.stop();
   traffic?.stop();
+  radio.stop();
   gps?.stop();
   orientation = null;
   traffic = null;
@@ -935,7 +960,9 @@ handleBackButton(() => {
   else if (view) exitApp();
   else start();
 });
-handlePauseResume(suspend, resume);
+// Desktop dev mode keeps running when its tab is hidden: an embedded preview hides and shows the
+// page as tools look at it, which would restart tracking (and lose the traffic) every time.
+if (!DEV) handlePauseResume(suspend, resume);
 // Keep the info line's heading fresh while it's showing.
 setInterval(() => {
   if (view && mode === 'info') renderOverlay();
@@ -947,7 +974,7 @@ setInterval(checkServer, 8000);
   ask: (text: string) => assistant.askText(text),
   listen: () => assistant.listen(),
   context: voiceContext,
-  debug: () => ({ server: serverHealth, voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
+  debug: () => ({ server: serverHealth, radio: radio.describe(), heard: radio.latest()?.event.text ?? null, highlighted: radio.highlightIds(), voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
 };
 
 // Straight into the view on launch; settings only show if it can't start (e.g. camera denied).

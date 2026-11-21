@@ -34,6 +34,56 @@ export type AskResponse = {
   error?: string;
 };
 
+/** One call heard on a radio feed, as the Mac transcribed and parsed it (mac-server/feeds.py). */
+export type RadioEvent = {
+  id: number;
+  feedId: string;
+  /** When it was heard, seconds since 1970. */
+  ts: number;
+  text: string;
+  /** Callsigns and tail-number fragments in the call, in the order said: "DAL1830", "901BG". */
+  callsignTokens: string[];
+  /** "left downwind" and the like, from a pattern position report. */
+  reportedLeg: string | null;
+  runway: string | null;
+};
+
+export type FeedInfo = {
+  id: string;
+  name: string;
+  freqs: string[];
+  /** Has a stream address (or a test recording) been set for it on the Mac? */
+  configured: boolean;
+  /** idle | connecting | online | offline */
+  status: string;
+};
+
+function feedInfo(value: unknown): FeedInfo | null {
+  const f = value as Record<string, unknown> | null;
+  if (!f || typeof f.id !== 'string') return null;
+  return {
+    id: f.id.slice(0, 40),
+    name: String(f.name ?? f.id).slice(0, 60),
+    freqs: Array.isArray(f.freqs) ? f.freqs.map((x) => String(x).slice(0, 12)).slice(0, 6) : [],
+    configured: f.configured === true,
+    status: ['idle', 'connecting', 'online', 'offline'].includes(f.status as string) ? (f.status as string) : 'idle',
+  };
+}
+
+function radioEvent(value: unknown): RadioEvent | null {
+  const e = value as Record<string, unknown> | null;
+  if (!e || typeof e.id !== 'number' || typeof e.text !== 'string') return null;
+  return {
+    id: e.id,
+    feedId: String(e.feedId ?? '').slice(0, 40),
+    ts: typeof e.ts === 'number' ? e.ts : 0,
+    text: e.text.slice(0, 400),
+    callsignTokens: Array.isArray(e.callsignTokens) ? e.callsignTokens.filter((t) => typeof t === 'string').map((t) => (t as string).slice(0, 10)).slice(0, 6) : [],
+    reportedLeg: typeof e.reportedLeg === 'string' ? e.reportedLeg.slice(0, 30) : null,
+    runway: typeof e.runway === 'string' ? e.runway.slice(0, 4) : null,
+  };
+}
+
 export type ServerHealth = {
   ok: boolean;
   whisper: string;
@@ -115,6 +165,39 @@ export function createServer(getUrl: () => string, getToken: () => string = () =
         error: d.error == null ? undefined : String(d.error).slice(0, 200),
         speech: clip(d.speech),
       };
+    },
+    /** The radio feeds the Mac knows about. null = couldn't ask. */
+    async feeds(): Promise<FeedInfo[] | null> {
+      try {
+        const r = await request(`${base()}/api/feeds`, { headers: headers() }, HEALTH_TIMEOUT_MS);
+        if (!r.ok) return null;
+        const list = ((await r.json()) as Record<string, unknown>).feeds;
+        return Array.isArray(list) ? (list.map(feedInfo).filter(Boolean) as FeedInfo[]) : null;
+      } catch {
+        return null;
+      }
+    },
+    /** Calls heard on a feed since event `since`. Asking is what keeps the Mac listening to it. */
+    async radioEvents(feedId: string, since: number): Promise<{ events: RadioEvent[]; feed: FeedInfo | null } | null> {
+      try {
+        const r = await request(`${base()}/api/radio/events?feed=${encodeURIComponent(feedId)}&since=${since}`, { headers: headers() }, HEALTH_TIMEOUT_MS);
+        if (!r.ok) return null;
+        const d = (await r.json()) as Record<string, unknown>;
+        return {
+          events: Array.isArray(d.events) ? (d.events.map(radioEvent).filter(Boolean) as RadioEvent[]) : [],
+          feed: Array.isArray(d.feeds) ? feedInfo(d.feeds[0]) : null,
+        };
+      } catch {
+        return null;
+      }
+    },
+    /** Tells the Mac which callsigns are around, so Whisper knows what to expect on the radio. */
+    async radioContext(callsigns: string[]): Promise<void> {
+      try {
+        await request(`${base()}/api/radio/context`, { method: 'POST', headers: headers(), body: JSON.stringify({ callsigns }) }, HEALTH_TIMEOUT_MS);
+      } catch {
+        // It only helps spelling: not worth reporting.
+      }
     },
     /** `text` in the assistant's voice, or null if the Mac can't speak it (then the phone's own voice is used). */
     async speech(text: string): Promise<SpeechClip | null> {

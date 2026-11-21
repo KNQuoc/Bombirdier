@@ -22,10 +22,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import asyncio
+
 import config
+import feeds
 import flightinfo
 import gpu
 import llm
+import radio
 import rules
 import transcribe
 import tts
@@ -65,8 +69,8 @@ async def guard(request: Request, call_next):
     - Host must be "localhost" or a bare IP address. A web page that points its own domain name at
       127.0.0.1 (DNS rebinding) sends that domain as Host and is refused.
     - Oversized requests are refused unread.
-    - Questions from another machine (Wi-Fi) need the shared token. From this Mac (which is what the
-      phone looks like over USB with adb reverse) they don't.
+    - Anything but the health check from another machine (Wi-Fi) needs the shared token. From this
+      Mac (which is what the phone looks like over USB with adb reverse) it doesn't.
     """
     host = _host_name(request.headers.get("host", ""))
     if host != "localhost" and not _is_ip(host):
@@ -74,7 +78,10 @@ async def guard(request: Request, call_next):
     length = request.headers.get("content-length", "")
     if length.isdigit() and int(length) > MAX_BODY_BYTES:
         return JSONResponse({"error": "request too large"}, status_code=413)
-    if request.method != "OPTIONS" and request.url.path.startswith("/api/voice") and not _from_this_mac(request):
+    # Everything except the health check: questions spend Aivana credit, and the radio endpoints
+    # start a connection to someone else's stream.
+    protected = request.url.path.startswith("/api/") and request.url.path != "/api/health"
+    if request.method != "OPTIONS" and protected and not _from_this_mac(request):
         sent = request.headers.get("x-bombirdier-token", "")
         if not config.SERVER_TOKEN or not hmac.compare_digest(sent.encode(), config.SERVER_TOKEN.encode()):
             return JSONResponse({"error": "missing or wrong server token"}, status_code=401)
@@ -111,11 +118,22 @@ class AskRequest(BaseModel):
     context: dict = {}
 
 
+app.include_router(radio.router)
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     # Load both models in the background, one after the other, on the GPU thread.
     gpu.executor.submit(transcribe.warm_up)
     gpu.executor.submit(tts.warm_up)
+    feeds.load()
+    asyncio.create_task(feeds.idle_watch())
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    for feed in feeds.all_feeds():
+        await feed.stop()  # don't leave an ffmpeg (and its connection) behind
 
 
 async def _speech(text: str) -> dict | None:

@@ -56,6 +56,24 @@ Answers are spoken by Kokoro, a neural voice that runs on this Mac (`tts.py`), a
 
 Pick a voice in `.env`: `TTS_VOICE=af_heart` (US female, the default), `am_michael` (US male), `bm_george` (British male), and others from the Kokoro voice list. `TTS_VOICE=` (empty) turns the Mac voice off. `TTS_SPEED=1.1` speaks a little faster.
 
+## Radio feeds
+
+The server can listen to a live ATC feed, cut it into individual calls, transcribe each one and tell the phone which callsign it named. The phone then highlights that plane and shows the call.
+
+Set a feed up in `feeds.json`:
+
+```json
+{ "id": "tol-app", "kind": "liveatc", "name": "Toledo Approach", "freqs": ["126.1", "134.35"], "streamUrl": "" }
+```
+
+`streamUrl` is empty on purpose: paste the stream address in yourself. On liveatc.net, find the feed (KTOL for Toledo), use its "listen" link, which downloads a small `.pls` file, and copy the address from the `File1=` line. Restart the server afterwards.
+
+LiveATC's terms don't allow third-party use of its streams. This is for private, personal listening, and the server behaves accordingly: one connection per feed, only while the app is open and asking for calls (it lets go two minutes after the app stops asking), a reconnect at most every 30 seconds, an honest User-Agent, nothing recorded (each call is a temporary file deleted as soon as it's transcribed), nothing re-shared.
+
+Check a feed: `curl -X POST http://127.0.0.1:8787/api/feeds/tol-app/check`. See what's been heard: `curl 'http://127.0.0.1:8787/api/radio/events?feed=tol-app'` (this also starts the feed).
+
+To try the pipeline without a live stream, point `FEEDS_FILE` at a list with a `"kind": "file", "path": "/some/recording.wav"` feed: the recording is played in a loop at real speed.
+
 ## What answers what
 
 | You say | Answered by | Measured, from end of speech to reply ready |
@@ -86,7 +104,12 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `prompt.py` | The assistant's persona and how the phone's context is written out for it |
 | `tools.py` | The actions the assistant can ask the phone to carry out, as a JSON Schema, and their validation |
 | `speech.py` | Wording plane data for speech (distances in nautical miles, said as "miles") |
-| `test_server.py` | `python3 test_server.py`: rules, speech and action checks. No network, no model |
+| `feeds.py`, `feeds.json` | Radio feeds: one worker per feed in use (ffmpeg → calls → Whisper → events) |
+| `splitter.py` | Cuts a continuous audio stream into individual calls |
+| `radio_parse.py` | Callsigns and position reports out of a transcribed call |
+| `radio.py` | The feed and radio endpoints |
+| `test_server.py` | `python3 test_server.py`: rules, speech, flight info and action checks. No network, no model |
+| `test_radio.py` | `python3 test_radio.py`: the radio parser and the call splitter |
 
 ## Flight times are estimates
 

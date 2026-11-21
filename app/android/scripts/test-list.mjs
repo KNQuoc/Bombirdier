@@ -502,6 +502,33 @@ try {
     assert.equal(movedM(300, 5).alt, 800);
   });
 
+  // ---- Phase 4: which plane is a radio call about? ----
+  const M = await vite.ssrLoadModule('/src/radio/match.ts');
+  test('radio calls are matched to planes', () => {
+    const sky = [
+      plane({ id: 'r1', callsign: 'DAL1830', registration: 'N301DN', distanceKm: 62 }),
+      plane({ id: 'r2', callsign: 'DAL183', registration: 'N302DN', distanceKm: 20 }),
+      plane({ id: 'r3', callsign: 'N901BG', registration: 'N901BG', distanceKm: 3 }),
+      plane({ id: 'r4', callsign: 'N491BG', registration: 'N491BG', distanceKm: 9 }),
+      plane({ id: 'r5', callsign: null, registration: 'N337BG', distanceKm: 30 }),
+      plane({ id: 'r6', callsign: 'SWA407', registration: 'N8501V', distanceKm: 140 }),
+    ];
+    const who = (...tokens) => M.matchCall(tokens, sky)?.id ?? null;
+    assert.equal(who('DAL1830'), 'r1'); // exact, even though DAL183 is closer
+    assert.equal(who('DAL18'), null); // part of a flight number is not a match
+    assert.equal(who('N901BG'), 'r3');
+    assert.equal(who('901BG'), 'r3'); // "Archer 901 Bravo Golf"
+    assert.equal(who('1BG'), 'r3'); // "one Bravo Golf": both N901BG and N491BG end that way, the closer one wins
+    assert.equal(who('91BG'), 'r4');
+    assert.equal(who('337BG'), 'r5'); // registration only, no callsign transmitted
+    assert.equal(who('BG'), null); // too short to mean anything
+    assert.equal(who('N8501V'), 'r6'); // an airliner by its tail number
+    assert.equal(who('UAL999'), null);
+    assert.equal(who('UAL999', 'SWA407'), 'r6'); // the first callsign that matches something
+    assert.equal(who(), null);
+    assert.equal(M.matchToken('', sky), null);
+  });
+
   const dataArg = process.argv.indexOf('--data');
   if (dataArg > 0) {
     const raw = JSON.parse(readFileSync(process.argv[dataArg + 1], 'utf-8'));

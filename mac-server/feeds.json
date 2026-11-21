@@ -1,0 +1,9 @@
+[
+  {
+    "id": "tol-app",
+    "kind": "liveatc",
+    "name": "Toledo Approach",
+    "freqs": ["126.1", "134.35"],
+    "streamUrl": ""
+  }
+]

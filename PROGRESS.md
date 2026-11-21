@@ -10,7 +10,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 | 1. Live traffic to 250 nm + list view | 🟡 | [#2](https://github.com/KNQuoc/Bombirdier/issues/2) |
 | 2. Traffic-pattern overlay at 1G0 | 🟡 | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
 | 3. AI voice assistant (Mac server + Aivana) | 🟡 | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
-| 4. Radio-call linking (LiveATC) | ⬜ | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
+| 4. Radio-call linking (LiveATC) | 🟡 | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
 | 5. Controllers on headband + "Can I access?" | ⬜ | [#6](https://github.com/KNQuoc/Bombirdier/issues/6) |
 | 6. Stretch goals | ⬜ | [#7](https://github.com/KNQuoc/Bombirdier/issues/7) |
 
@@ -84,14 +84,17 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 4: radio-call linking (LiveATC)
 
-- [ ] `mac-server/feeds.json` (Kien pastes the KTOL `streamUrl` by hand)
-- [ ] Feed worker: ffmpeg decode → call splitting → Whisper → parse → ring buffer; idle stop after ~2 min
-- [ ] Feed health: `GET /api/feeds`, `POST /api/feeds/{id}/check`
-- [ ] `POST /api/radio/context`
-- [ ] `mac-server/radio_parse.py`: phonetics, numbers, GA tails, airline radio names, position reports
-- [ ] `GET /api/radio/events`, `GET /api/radio/heard`
-- [ ] Phone: polling, matching (exact + GA suffix, near + wide traffic), highlight + subtitle
-- [ ] Done: Toledo Approach calls appear within a few seconds and mostly match the right plane
+- [ ] `mac-server/feeds.json`: **Kien pastes the KTOL `streamUrl` by hand** (the file is there with it empty; until then the feed shows as not set up and nothing connects)
+- [x] Feed worker: ffmpeg decode → call splitting (`splitter.py`) → Whisper with a radio prompt → parse → ring buffer of 200; one connection per feed, started by the phone asking for calls, stopped 2 min after it last asked, reconnect at most every 30 s
+- [x] Feed health: `GET /api/feeds`, `POST /api/feeds/{id}/check`
+- [x] `POST /api/radio/context` (callsigns around, said the radio way, go into Whisper's prompt)
+- [x] `mac-server/radio_parse.py`: phonetics, numbers, GA tails, airline radio names, position reports
+- [x] `GET /api/radio/events`, `GET /api/radio/heard`
+- [x] Phone (`src/radio/`): polling, matching (exact + tail suffix, near + wide traffic), pulsing highlight for 8 s + subtitle; where the plane is if it's outside the AR view; a leg said on the radio shown next to the classifier's on the card
+- [x] Setting: Radio calls On / Off
+- [x] Tests: 48 checks on the parser and splitter, a plane-matching test, and the whole pipeline run on test recordings (clean and radio-quality) including one that named real planes in the air: both were matched, one of them 116 km away
+- [ ] Not yet heard on real ATC audio: the test recordings are a computer voice. Real controller audio is faster, clipped and noisier, and Whisper will do worse on it
+- [ ] Done: Toledo Approach calls appear within a few seconds and mostly match the right plane (needs the stream address)
 
 ## Phase 5: controllers on headband + "Can I access?"
 
@@ -119,6 +122,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 4 · Radio-call linking built: feed workers, call splitter, radio parser, endpoints, phone matching/highlight/subtitle. Works end to end on test recordings; waiting on the LiveATC stream address to try real audio.
 - 2026-11-21 · phase 2 · Runway in use detected from traffic (Auto is the default), entry rule fixed, stale positions no longer extrapolated. The recorded N442BG landing is a regression test: 25 app tests, 108 server checks.
 - 2026-11-21 · phase 3 · Flight progress, arrival estimates and live weather added to the assistant; checked on real flights (JIA5240 CLT–SBN on approach, ASA829 JFK–HNL in cruise).
 - 2026-11-21 · on the phone · First run on Kien's Pixel 7: app, GPS, traffic, USB link to the Mac, voice (after fixing speech detection). Watched a BGSU Seminole (N442BG) fly a left pattern and land on runway 18: the app had runway 28 set and labeled it wrong. Recording in `docs/recordings/`.

@@ -6,6 +6,14 @@ AVIATION_PROMPT = (
     "Aviation talk at Wood County Regional Airport, Bowling Green, Ohio. BGSU, Piper Archer, Piper Seminole, Skyhawk, "
     "helicopters, jets, radar, runway two eight, runway one zero, downwind, base, final, upwind, crosswind, Toledo Approach."
 )
+# For radio calls (feeds.py). Examples in the style of real calls steer Whisper toward callsigns,
+# headings, altitudes and frequencies instead of ordinary prose.
+RADIO_PROMPT = (
+    "Air traffic control radio: Toledo Approach and Wood County traffic. Northwest 52, descend and maintain 6,000. "
+    "November 12 Quebec Zulu, radar contact, altimeter 29.92. Skyhawk 4 Xray Yankee, right base runway 36. "
+    "Turn left heading 270, contact tower 118.1, squawk 4521, cleared ILS runway 25 approach."
+)
+
 # Given silence or noise, Whisper makes things up: usually a word from its prompt, over and over.
 # Its own per-segment figures give that away, and such segments are dropped.
 NO_SPEECH_PROB = 0.6  # the model itself thinks nobody spoke
@@ -21,13 +29,14 @@ def state() -> str:
     return _state
 
 
-def _prompt(callsigns: list[str]) -> str:
+def _prompt(callsigns: list[str], base: str = "") -> str:
     """Whisper spells better when it has seen the words: the callsigns around go into the prompt."""
+    base = base or AVIATION_PROMPT
     names = ", ".join(c for c in callsigns[:25] if c)
-    return f"{AVIATION_PROMPT} Callsigns: {names}." if names else AVIATION_PROMPT
+    return f"{base} Callsigns: {names}." if names else base
 
 
-def transcribe(path: str, callsigns: list[str] | None = None) -> str:
+def transcribe(path: str, callsigns: list[str] | None = None, prompt: str = "") -> str:
     """Blocking: call it through gpu.run(). The first call loads the model, and downloads it if needed (about 1.6 GB)."""
     global _state
     import mlx_whisper  # imported late: it's slow to import and the server should start right away
@@ -38,7 +47,7 @@ def transcribe(path: str, callsigns: list[str] | None = None) -> str:
         result = mlx_whisper.transcribe(
             path,
             path_or_hf_repo=config.WHISPER_MODEL,
-            initial_prompt=_prompt(callsigns or []),
+            initial_prompt=_prompt(callsigns or [], prompt),
             language="en",
             temperature=0.0,
             condition_on_previous_text=False,
@@ -52,7 +61,11 @@ def transcribe(path: str, callsigns: list[str] | None = None) -> str:
         if s.get("no_speech_prob", 0.0) < NO_SPEECH_PROB and s.get("compression_ratio", 1.0) < COMPRESSION_RATIO
     ]
     text = " ".join((s.get("text") or "").strip() for s in spoken).strip()
-    return "" if len(text) >= ECHO_MIN_CHARS and text in _prompt(callsigns or []) else text
+    # The echo check is for voice questions only. A radio call can legitimately be word for word what
+    # the prompt's examples sound like, and the per-segment checks above already drop what Whisper invents.
+    if not prompt and len(text) >= ECHO_MIN_CHARS and text in _prompt(callsigns or []):
+        return ""
+    return text
 
 
 def warm_up() -> None:
