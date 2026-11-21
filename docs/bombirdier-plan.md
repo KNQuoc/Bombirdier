@@ -1,7 +1,5 @@
 # Bombirdier: build plan
 
-Personal fun project by Kien, built on Jaiden Lee's **Sky C2 / SkyLens** (`github.com/jaiden-lee/ar-plane-identifier`, used with his permission). Not being published.
-
 **What Bombirdier is:** the SkyLens Android app (phone in a Google Cardboard) turned into an **AR aviation companion for aviation students and plane fans** at **Wood County Regional Airport (1G0)** in Bowling Green, OH, home of the BGSU flight program. On top of what SkyLens already does (identify planes in the sky with a compass "headband" and info cards), it adds:
 
 1. **Sky placement.** Each plane gets a bracket at its real spot in the sky (direction + altitude). *Already written: see Phase 0.*
