@@ -1,16 +1,42 @@
 [
   {
     "id": "1g0-ctaf",
-    "kind": "liveatc",
+    "kind": "tab",
     "name": "Wood County CTAF",
     "freqs": ["122.975"],
-    "streamUrl": ""
+    "page": "https://www.liveatc.net/search/?icao=1g0",
+    "listenTo": "1G0 CTAF"
   },
   {
     "id": "tol-app",
-    "kind": "liveatc",
-    "name": "Toledo Approach",
-    "freqs": ["126.1", "134.35"],
-    "streamUrl": ""
+    "kind": "tab",
+    "name": "Toledo Tower and Approach",
+    "freqs": ["118.1", "126.1", "134.35"],
+    "page": "https://www.liveatc.net/search/?icao=KTOL",
+    "listenTo": "KTOL Del/Gnd/Twr/App"
+  },
+  {
+    "id": "dtw-app-west",
+    "kind": "tab",
+    "name": "Detroit Approach (Arrival West)",
+    "freqs": ["124.05"],
+    "page": "https://www.liveatc.net/search/?icao=KDTW",
+    "listenTo": "Detroit Approach (Arrival West)"
+  },
+  {
+    "id": "zob-47",
+    "kind": "tab",
+    "name": "Cleveland Center (Bluffton High)",
+    "freqs": ["119.325"],
+    "page": "https://www.liveatc.net/search/?icao=ZOB",
+    "listenTo": "ZOB Sector 47 Bluffton Hi"
+  },
+  {
+    "id": "cmh-app-north",
+    "kind": "tab",
+    "name": "Columbus Approach (North)",
+    "freqs": ["125.95"],
+    "page": "https://www.liveatc.net/search/?icao=KCMH",
+    "listenTo": "KCMH App/Dep (North)"
   }
 ]

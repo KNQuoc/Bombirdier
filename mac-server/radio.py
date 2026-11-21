@@ -2,6 +2,8 @@
 
     GET  /api/feeds                      every feed with its status
     POST /api/feeds/{id}/check           is the stream there? (a quick look, without starting to listen)
+    GET  /capture                        the page that captures a Chrome tab's sound for a "tab" feed
+    POST /api/feeds/{id}/audio           that page pushing audio in
     POST /api/radio/context              the callsigns the phone can see (helps Whisper spell them)
     GET  /api/radio/events?feed=&since=  calls heard since event `since`. Asking is what keeps a feed
                                          running: it starts on the first request and stops two minutes
@@ -10,13 +12,43 @@
 
 The phone polls /events a couple of times a second (Capacitor's native HTTP has no streaming).
 """
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Request
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+import config
 import feeds
 
 router = APIRouter()
+
+# One push from the capture page is a quarter of a second of audio (8 kB); this is a guard, not a target.
+MAX_PUSH_BYTES = 512 * 1024
+
+
+@router.get("/capture")
+async def capture_page():
+    """The page that sends a Chrome tab's sound here (see feeds.py, kind "tab")."""
+    return FileResponse(config.HERE / "capture.html", media_type="text/html")
+
+
+@router.post("/api/feeds/{feed_id}/audio")
+async def push_audio(feed_id: str, request: Request):
+    """Raw audio from the capture page: 16 kHz, mono, 16-bit little-endian."""
+    # Only the capture page sends this. Another website open in the same browser could otherwise
+    # post made-up "radio" here: a browser always says where a cross-site request comes from.
+    origin = request.headers.get("origin")
+    if origin and urlparse(origin).hostname not in ("localhost", "127.0.0.1", "::1"):
+        return JSONResponse({"error": "audio is only accepted from the capture page"}, status_code=403)
+    feed = feeds.get(feed_id)
+    if not feed or not feed.is_tab:
+        return JSONResponse({"error": "no such tab feed"}, status_code=404)
+    pcm = await request.body()
+    if not pcm or len(pcm) > MAX_PUSH_BYTES or len(pcm) % 2:
+        return JSONResponse({"error": "expected 16-bit audio, at most half a megabyte at a time"}, status_code=400)
+    feed.push(pcm)
+    return {"ok": True}
 
 
 class RadioContext(BaseModel):

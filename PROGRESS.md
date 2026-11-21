@@ -84,10 +84,10 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 4: radio-call linking (LiveATC)
 
-- [ ] `mac-server/feeds.json`: stream addresses still empty, so nothing connects. What LiveATC has (checked 2026-11-21):
-  - **1G0 CTAF**, Wood County 122.975: exists and was up. The plan assumed LiveATC didn't cover it. This is the feed that matters most: BGSU pattern calls
-  - **KTOL Del/Gnd/Twr/App**: one feed mixing Approach East 126.1 and West 134.35, Tower 118.1, Ground and Clearance
-  - Neither has a downloadable `.pls` link any more, only LiveATC's in-browser player, and both pages say streams may not be used in third-party products. How to get the audio is Kien's decision (pending)
+- [x] How the audio gets in (Kien's decision, 2026-11-21): **through a browser tab**. LiveATC only offers an in-browser player now and says streams may not be used in third-party products, so the server never connects to its streams. The feed plays in LiveATC's player in a Chrome tab; `http://localhost:8787/capture` shares that tab's sound with the server (`"kind": "tab"` in `feeds.json`, `POST /api/feeds/{id}/audio`)
+- [x] `mac-server/feeds.json`: five feeds, each with its LiveATC page and name there (checked 2026-11-21): **Wood County CTAF** 122.975 (the one that matters most: BGSU pattern calls; the plan assumed LiveATC didn't cover it), **Toledo Tower and Approach** (one feed mixing 118.1, 126.1, 134.35, Ground and Clearance), **Detroit Approach (Arrival West)** 124.05, **Cleveland Center (Bluffton High)** 119.325, **Columbus Approach (North)** 125.95. The Detroit and Cleveland sectors are a guess from their names. Fort Wayne not looked up (LiveATC refused the lookup)
+- [x] Phone follows every feed at once: all calls from the home frequency (first in `feeds.json`), and from the others only calls that name a plane the app knows
+- [ ] First real capture: open a LiveATC tab, press Capture tab (the permission click is Kien's), and see whether it keeps going for an hour with the tabs in the background
 - [x] Feed worker: ffmpeg decode → call splitting (`splitter.py`) → Whisper with a radio prompt → parse → ring buffer of 200; one connection per feed, started by the phone asking for calls, stopped 2 min after it last asked, reconnect at most every 30 s
 - [x] Feed health: `GET /api/feeds`, `POST /api/feeds/{id}/check`
 - [x] `POST /api/radio/context` (callsigns around, said the radio way, go into Whisper's prompt)
@@ -97,7 +97,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Setting: Radio calls On / Off
 - [x] Tests: 48 checks on the parser and splitter, a plane-matching test, and the whole pipeline run on test recordings (clean and radio-quality) including one that named real planes in the air: both were matched, one of them 116 km away
 - [ ] Not yet heard on real ATC audio: the test recordings are a computer voice. Real controller audio is faster, clipped and noisier, and Whisper will do worse on it
-- [ ] Done: Toledo Approach calls appear within a few seconds and mostly match the right plane (needs the stream address)
+- [ ] Done: Toledo Approach calls appear within a few seconds and mostly match the right plane (needs a real capture)
 
 ## Phase 5: controllers on headband + "Can I access?"
 
@@ -125,6 +125,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 4 · Radio audio now comes in through a browser tab: `mac-server/capture.html` (at `/capture`) shares the sound of a Chrome tab playing LiveATC's own player, and the server cuts and transcribes it as before. No stream addresses anywhere. Five feeds listed; the phone follows all of them. Checked with a test recording pushed through the new endpoint and with a stand-in audio stream on the page; not yet with a real LiveATC tab.
 - 2026-11-21 · phase 4 · Radio-call linking built: feed workers, call splitter, radio parser, endpoints, phone matching/highlight/subtitle. Works end to end on test recordings; waiting on the LiveATC stream address to try real audio.
 - 2026-11-21 · phase 2 · Runway in use detected from traffic (Auto is the default), entry rule fixed, stale positions no longer extrapolated. The recorded N442BG landing is a regression test: 25 app tests, 108 server checks.
 - 2026-11-21 · phase 3 · Flight progress, arrival estimates and live weather added to the assistant; checked on real flights (JIA5240 CLT–SBN on approach, ASA829 JFK–HNL in cruise).

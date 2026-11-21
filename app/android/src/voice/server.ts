@@ -52,7 +52,7 @@ export type FeedInfo = {
   id: string;
   name: string;
   freqs: string[];
-  /** Has a stream address (or a test recording) been set for it on the Mac? */
+  /** Can the Mac listen to it (a browser-tab feed, a stream address, or a test recording)? */
   configured: boolean;
   /** idle | connecting | online | offline */
   status: string;
@@ -177,15 +177,18 @@ export function createServer(getUrl: () => string, getToken: () => string = () =
         return null;
       }
     },
-    /** Calls heard on a feed since event `since`. Asking is what keeps the Mac listening to it. */
-    async radioEvents(feedId: string, since: number): Promise<{ events: RadioEvent[]; feed: FeedInfo | null } | null> {
+    /**
+     * Calls heard on every feed since event `since`, oldest first, with how each feed is doing.
+     * Asking is what keeps the Mac listening to a feed it connects to itself.
+     */
+    async radioEvents(since: number): Promise<{ events: RadioEvent[]; feeds: FeedInfo[] } | null> {
       try {
-        const r = await request(`${base()}/api/radio/events?feed=${encodeURIComponent(feedId)}&since=${since}`, { headers: headers() }, HEALTH_TIMEOUT_MS);
+        const r = await request(`${base()}/api/radio/events?since=${since}`, { headers: headers() }, HEALTH_TIMEOUT_MS);
         if (!r.ok) return null;
         const d = (await r.json()) as Record<string, unknown>;
         return {
           events: Array.isArray(d.events) ? (d.events.map(radioEvent).filter(Boolean) as RadioEvent[]) : [],
-          feed: Array.isArray(d.feeds) ? feedInfo(d.feeds[0]) : null,
+          feeds: Array.isArray(d.feeds) ? (d.feeds.map(feedInfo).filter(Boolean) as FeedInfo[]) : [],
         };
       } catch {
         return null;

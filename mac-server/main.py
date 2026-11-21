@@ -80,7 +80,7 @@ async def guard(request: Request, call_next):
         return JSONResponse({"error": "request too large"}, status_code=413)
     # Everything except the health check: questions spend Aivana credit, and the radio endpoints
     # start a connection to someone else's stream.
-    protected = request.url.path.startswith("/api/") and request.url.path != "/api/health"
+    protected = (request.url.path.startswith("/api/") and request.url.path != "/api/health") or request.url.path == "/capture"
     if request.method != "OPTIONS" and protected and not _from_this_mac(request):
         sent = request.headers.get("x-bombirdier-token", "")
         if not config.SERVER_TOKEN or not hmac.compare_digest(sent.encode(), config.SERVER_TOKEN.encode()):

@@ -1,16 +1,20 @@
-"""Live radio feeds: one worker per feed that is actually in use.
+"""Live radio feeds.
 
-    stream --ffmpeg--> 16 kHz audio --CallSplitter--> one call --Whisper--> text --radio_parse--> event
+    audio --CallSplitter--> one call --Whisper--> text --radio_parse--> event
 
-Feeds are listed in feeds.json. A LiveATC feed needs its stream address pasted in by hand
-(`streamUrl`): find the feed on liveatc.net, its "listen" link downloads a small .pls file, and the
-`File1=` line in that is the address. Nothing here guesses or scrapes addresses.
+Feeds are listed in feeds.json. Where the audio comes from depends on the feed's kind:
 
-Being a polite listener (LiveATC's terms don't allow third-party use; this is private, personal use):
-one connection per feed, only while someone is listening (a worker starts when the phone asks for
-that feed's calls and stops two minutes after it last asked), a reconnect at most every 30 seconds,
-an honest User-Agent, nothing written to disk beyond a temporary file per call that is deleted at
-once, and no redistribution.
+  tab      The feed plays in its own website's player in a Chrome tab, and the capture page
+           (/capture) sends that tab's sound here. This is how LiveATC feeds are used: their pages
+           offer an in-browser player and say the streams may not be used in third-party products,
+           so nothing here connects to their streams or knows their addresses. You listen through
+           their player; this Mac transcribes what is playing.
+  stream   A plain web audio stream this Mac may connect to (your own receiver, for instance). One
+           ffmpeg connection, only while someone is listening: it starts when the phone asks for the
+           feed's calls, stops two minutes after it last asked, and reconnects at most every 30 s.
+  file     A local recording played in a loop at real speed, for testing.
+
+Nothing is written to disk beyond a temporary file per call, deleted as soon as it is transcribed.
 """
 import asyncio
 import json
@@ -32,6 +36,7 @@ FEEDS_FILE = Path(os.environ.get("FEEDS_FILE") or config.HERE / "feeds.json")
 STOP_AFTER_IDLE_S = 120
 RECONNECT_AFTER_S = 30
 ONLINE_WITHIN_S = 15  # audio arrived this recently = the feed is up
+TAB_ONLINE_WITHIN_S = 5  # a captured tab sends audio constantly; a gap this long means capture stopped
 EVENTS_KEPT = 200
 BUFFER_S = 60  # recent audio kept in memory, for replaying to the phone (Phase 5)
 READ_BYTES = 4800  # 150 ms
@@ -50,7 +55,7 @@ def _next_event_id() -> int:
 def _ffmpeg_input(cfg: dict) -> list[str] | None:
     """ffmpeg's input arguments for a feed, or None if it isn't set up."""
     kind = cfg.get("kind")
-    if kind in ("liveatc", "stream"):
+    if kind == "stream":
         url = (cfg.get("streamUrl") or "").strip()
         # Only plain web streams: ffmpeg understands many other "protocols" a config file shouldn't reach.
         if not url.lower().startswith(("http://", "https://")):
@@ -76,10 +81,28 @@ class Feed:
         self.error = ""
         self._task: asyncio.Task | None = None
         self._backlog = 0
+        # A tab feed has no worker: its audio is pushed in by the capture page.
+        self.is_tab = cfg.get("kind") == "tab"
+        self._splitter = CallSplitter()
 
     @property
     def configured(self) -> bool:
-        return _ffmpeg_input(self.cfg) is not None
+        return self.is_tab or _ffmpeg_input(self.cfg) is not None
+
+    def push(self, pcm: bytes) -> None:
+        """Audio from the capture page (16 kHz, mono, 16-bit): the tab feed's way in."""
+        now = time.time()
+        if now - self.last_audio_at > TAB_ONLINE_WITHIN_S:
+            # Capture has just (re)started: whatever half a call was left over from before is not
+            # part of what comes next.
+            self._splitter = CallSplitter()
+            self.audio.clear()
+        self.status = "online"
+        self.error = ""
+        self.last_audio_at = now
+        self.audio.append(pcm)
+        for call in self._splitter.feed(pcm):
+            self._queue(call)
 
     def describe(self) -> dict:
         return {
@@ -87,6 +110,9 @@ class Feed:
             "name": self.cfg.get("name", self.id),
             "kind": self.cfg.get("kind"),
             "freqs": self.cfg.get("freqs", []),
+            # Where to open the feed's own player, and what it is called there (tab feeds).
+            "page": self.cfg.get("page"),
+            "listenTo": self.cfg.get("listenTo"),
             "configured": self.configured,
             "status": self.current_status(),
             "lastCallAt": self.last_call_at,
@@ -94,6 +120,11 @@ class Feed:
         }
 
     def current_status(self) -> str:
+        if self.is_tab:
+            # Captured audio arrives several times a second, silence included. None lately = capture stopped.
+            if not self.last_audio_at:
+                return "idle"
+            return "online" if time.time() - self.last_audio_at <= TAB_ONLINE_WITHIN_S else "offline"
         if self.status == "online" and time.time() - self.last_audio_at > ONLINE_WITHIN_S:
             return "connecting"  # connected, but nothing has come through for a while
         return self.status
@@ -101,6 +132,8 @@ class Feed:
     def use(self) -> None:
         """Someone wants this feed: start it if it isn't running, and keep it from idling out."""
         self.last_used_at = time.time()
+        if self.is_tab:
+            return
         if self.configured and (self._task is None or self._task.done()):
             self._task = asyncio.create_task(self._run())
 
@@ -187,7 +220,7 @@ class Feed:
 
     async def check(self) -> str:
         """Is the stream there? A quick look without starting to listen. Running feeds just report their status."""
-        if self._task and not self._task.done():
+        if self.is_tab or (self._task and not self._task.done()):
             return self.current_status()
         source = _ffmpeg_input(self.cfg)
         if not source:

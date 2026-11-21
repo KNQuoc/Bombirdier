@@ -60,19 +60,36 @@ Pick a voice in `.env`: `TTS_VOICE=af_heart` (US female, the default), `am_micha
 
 The server can listen to a live ATC feed, cut it into individual calls, transcribe each one and tell the phone which callsign it named. The phone then highlights that plane and shows the call.
 
-Set a feed up in `feeds.json`:
+### Listening through a browser tab (how LiveATC feeds are used)
+
+LiveATC's pages offer an in-browser player and say the streams may not be used in third-party products. So this server never connects to a LiveATC stream and has no stream addresses. You play the feed in LiveATC's own player, in a Chrome tab, and hand that tab's sound to the server:
+
+1. Start the server, then open **<http://localhost:8787/capture>** in Chrome on this Mac.
+2. For a feed, press **Open its page**, and on LiveATC press play on the feed the card names. Leave that tab open.
+3. Back on the capture page press **Capture tab**, pick that Chrome tab in Chrome's window, leave **Also share tab audio** on, and Share. The meter moves when sound is coming through, and calls appear under the feed as they are written down.
+
+Repeat for each feed you want. A captured tab goes quiet on the Mac's speakers unless you tick the box at the top first. Capturing stops when you press Stop, close either tab, or end sharing in Chrome; nothing reconnects by itself.
+
+The feeds on that page come from `feeds.json`:
 
 ```json
-{ "id": "1g0-ctaf", "kind": "liveatc", "name": "Wood County CTAF", "freqs": ["122.975"], "streamUrl": "" }
+{ "id": "1g0-ctaf", "kind": "tab", "name": "Wood County CTAF", "freqs": ["122.975"],
+  "page": "https://www.liveatc.net/search/?icao=1g0", "listenTo": "1G0 CTAF" }
 ```
 
-`streamUrl` is empty on purpose. LiveATC lists two feeds for this area (checked 2026-11-21): **1G0 CTAF** (Wood County, 122.975) and **KTOL Del/Gnd/Twr/App** (Toledo Approach 126.1 and 134.35 mixed with Tower, Ground and Clearance). Its pages used to offer a "listen" link that downloaded a `.pls` file with the stream address in it; they now offer only an in-browser player, and say streams may not be used in third-party products. Whether and how to get an address is the owner's decision, not something this code does. Restart the server after changing `feeds.json`.
+`page` is the public page to open and `listenTo` is what the feed is called there. The first feed in the file is the **home frequency**: the phone shows everything said on it. On the others it shows a call only when it names a plane the app knows. The list as shipped (LiveATC pages checked 2026-11-21): Wood County CTAF, Toledo Tower and Approach (one mixed feed), Detroit Approach (Arrival West), Cleveland Center (Bluffton High, the sector over northwest Ohio) and Columbus Approach (North). Which Detroit and Cleveland sectors actually work the traffic near Bowling Green is a guess from the sector names: swap them for others on the same pages if they turn out quiet. Restart the server after changing `feeds.json`.
 
-LiveATC's terms don't allow third-party use of its streams. This is for private, personal listening, and the server behaves accordingly: one connection per feed, only while the app is open and asking for calls (it lets go two minutes after the app stops asking), a reconnect at most every 30 seconds, an honest User-Agent, nothing recorded (each call is a temporary file deleted as soon as it's transcribed), nothing re-shared.
+Every captured feed is transcribed on this Mac, on the same thread as the voice assistant. Two or three are fine; five busy ones will make voice answers wait, and calls are skipped (never queued up) when Whisper falls behind.
 
-Check a feed: `curl -X POST http://127.0.0.1:8787/api/feeds/tol-app/check`. See what's been heard: `curl 'http://127.0.0.1:8787/api/radio/events?feed=tol-app'` (this also starts the feed).
+Nothing is recorded: each call is a temporary file deleted as soon as it is transcribed, and nothing is re-shared.
 
-To try the pipeline without a live stream, point `FEEDS_FILE` at a list with a `"kind": "file", "path": "/some/recording.wav"` feed: the recording is played in a loop at real speed.
+### Other kinds of feed
+
+`"kind": "stream"` with a `streamUrl` is for a plain web audio stream this Mac may connect to itself (your own receiver, for instance): one connection, only while the app is asking for calls, let go two minutes after it stops asking, a reconnect at most every 30 seconds.
+
+See what's been heard: `curl 'http://127.0.0.1:8787/api/radio/events?feed=tol-app'`. Check a stream feed: `curl -X POST http://127.0.0.1:8787/api/feeds/<id>/check`.
+
+To try the pipeline without a live feed, point `FEEDS_FILE` at a list with a `"kind": "file", "path": "/some/recording.wav"` feed: the recording is played in a loop at real speed.
 
 ## What answers what
 
@@ -104,7 +121,8 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `prompt.py` | The assistant's persona and how the phone's context is written out for it |
 | `tools.py` | The actions the assistant can ask the phone to carry out, as a JSON Schema, and their validation |
 | `speech.py` | Wording plane data for speech (distances in nautical miles, said as "miles") |
-| `feeds.py`, `feeds.json` | Radio feeds: one worker per feed in use (ffmpeg → calls → Whisper → events) |
+| `feeds.py`, `feeds.json` | Radio feeds: audio in (from a captured browser tab, or ffmpeg for a stream or test file) → calls → Whisper → events |
+| `capture.html` | The page at `/capture` that sends a Chrome tab's sound to the server |
 | `splitter.py` | Cuts a continuous audio stream into individual calls |
 | `radio_parse.py` | Callsigns and position reports out of a transcribed call |
 | `radio.py` | The feed and radio endpoints |
