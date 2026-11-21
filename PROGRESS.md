@@ -61,7 +61,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 - [ ] `mac-server/` FastAPI on :8787, `/api/health`
 - [ ] mlx-whisper (`whisper-large-v3-turbo`) with aviation + callsign `initial_prompt`
-- [ ] `docs/aivana.md` added by Kien → `mac-server/llm.py`
+- [x] `docs/aivana.md`: written from Aivana's public docs (2026-11-20). Not OpenAI-compatible, no tool calling; actions will come back through its strict JSON Schema output
+- [ ] Kien: create an Aivana API key and put it in `mac-server/.env` (see `.env.example`)
+- [ ] `mac-server/llm.py` against `POST /v1/generate`; measure latency with the real key
 - [ ] Assistant prompt (co-pilot, short answers)
 - [ ] `mac-server/tools.py`: list/radar tools, `{ answer, actions }` reply
 - [ ] Phone: `rollDeg` in orientation, head-tilt push-to-talk, MediaRecorder, `RECORD_AUDIO`
@@ -106,6 +108,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-20 · phase 3 prep · Read Aivana's API docs and summarized them in `docs/aivana.md`; added `mac-server/.env.example`.
 - 2026-11-20 · phase 2 · Wood County runways and traffic pattern on the radar and in the sky; pattern-leg classifier with hysteresis; leg on the card and radar; Active runway setting. 20 unit tests pass. Drawing checked with synthetic planes only: no live pattern traffic at night.
 - 2026-11-20 · phase 1 · BGSU planes are tagged, colored orange and filterable; trainer type names added (P28A = Piper PA-28 Archer, PA44 = Piper PA-44 Seminole). Checked on a live BGSU Archer (N337BG) 25 km west of 1G0.
 - 2026-11-20 · data check · adsb.lol vs adsb.fi over 250 nm: 410 shared planes, positions within ~100 m (median), altitudes within 50 ft, callsigns identical.
