@@ -123,6 +123,8 @@ const SKY_TOP = 0.06;
 const SKY_BOTTOM = 0.94;
 /** The card follows the focused plane's bracket only while the bracket is above this (fraction of eye height). */
 const SKY_CARD_MAX_Y = 0.58;
+/** The same limit while the voice assistant's text is on screen. */
+const SKY_CARD_MAX_Y_TALKING = 0.34;
 
 export const COLORS = {
   hud: 'rgba(79, 195, 247, 0.95)',
@@ -548,7 +550,10 @@ function drawAircraftLayer(
   let cardTop = labelRowY(barY) + fs(10);
   if (pt) {
     const r = drawSkyMarker(ctx, pt, focus.p, true, s.timeMs);
-    if (pt.y <= h * SKY_CARD_MAX_Y) {
+    // While a question or its answer is on screen (lower half of the view), a card hanging under a
+    // bracket in mid-view would run into it: it only hangs there when the bracket is high up.
+    const talking = !!s.voice && (s.voice.state !== 'idle' || !!s.voice.answer || !!s.voice.transcript);
+    if (pt.y <= h * (talking ? SKY_CARD_MAX_Y_TALKING : SKY_CARD_MAX_Y)) {
       cardX = pt.x;
       cardTop = Math.max(cardTop, pt.y + r + 8);
     }

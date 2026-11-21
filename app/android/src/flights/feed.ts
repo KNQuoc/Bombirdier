@@ -76,6 +76,8 @@ export function extrapolate(planes: Plane[], fetchedAt: number, now: number, vie
 export type NearFeed = PlaneFeed & {
   /** True if the latest poll was rate-limited, failed or slow. */
   throttled: () => boolean;
+  /** Changes how far out planes are asked for, and asks again right away. null = the default. */
+  setRadius: (radiusKm: number | null) => void;
 };
 
 /**
@@ -84,6 +86,9 @@ export type NearFeed = PlaneFeed & {
  * last good data. Positions are extrapolated between polls so planes glide instead of jumping.
  */
 export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () => LatLon | null }): NearFeed {
+  let radiusKm = opts.radiusKm;
+  /** Goes up when the radius changes, so an answer for the old radius that is still on its way is dropped. */
+  let generation = 0;
   let status = 'live · waiting for GPS';
   let polled: { planes: Plane[]; fetchedAt: number; at: LatLon } | null = null;
   let current: FeedState = { planes: [], status };
@@ -102,8 +107,9 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
       return;
     }
     const startedAt = Date.now();
-    const { planes, problem, fetchedAt } = await livePlanes(pos.lat, pos.lon, opts.radiusKm);
-    if (stopped) return;
+    const mine = generation;
+    const { planes, problem, fetchedAt } = await livePlanes(pos.lat, pos.lon, radiusKm);
+    if (stopped || mine !== generation) return;
     polled = { planes, fetchedAt, at: pos };
     computedAt = 0; // recompute on the next get()
     const throttled = problem != null || Date.now() - startedAt > SLOW_ANSWER_MS;
@@ -132,6 +138,13 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
       return current;
     },
     throttled: () => lastThrottled,
+    setRadius: (km) => {
+      if (km === radiusKm || stopped) return;
+      radiusKm = km;
+      generation++;
+      clearTimeout(timer);
+      void poll();
+    },
     stop: () => {
       stopped = true;
       clearTimeout(timer);

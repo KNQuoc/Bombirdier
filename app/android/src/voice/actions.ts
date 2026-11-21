@@ -15,6 +15,8 @@ export type ActionDeps = {
   /** null = back to automatic. */
   setRadarRangeKm: (km: number | null) => void;
   setRunway: (ident: string) => boolean;
+  /** How far out the compass bar and the sky show planes. null = the default. */
+  setArRadiusKm: (km: number | null) => void;
   /** How far the data reaches, for "no helicopters within 250 miles". */
   coverageNm: () => number;
   /** How many planes the app knows about at all. Zero means there's no data, not an empty sky. */
@@ -156,6 +158,9 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
         break;
       case 'set_runway':
         if (a.runway && !deps.setRunway(a.runway)) say = `There's no runway ${a.runway} here.`;
+        break;
+      case 'ar_range':
+        if (typeof a.km === 'number' && a.km >= 0) deps.setArRadiusKm(a.km > 0 ? a.km : null);
         break;
       case 'connect_feed': {
         const problem = a.feed ? deps.radio.connect(a.feed) : "I don't know which frequency you mean.";

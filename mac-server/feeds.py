@@ -39,6 +39,8 @@ STOP_AFTER_IDLE_S = 120
 RECONNECT_AFTER_S = 30
 ONLINE_WITHIN_S = 15  # audio arrived this recently = the feed is up
 LISTENER_QUEUE = 40  # chunks waiting for one listener's encoder (10 s of a tab feed)
+LISTEN_PREROLL_S = 2.5  # recent audio a new listener is given at once, so playback starts quickly
+LISTEN_BITRATE = "128k"  # generous for speech: more bytes per second fills the player's start-up buffer sooner
 LISTEN_IDLE_S = 20  # a listener's stream ends after this long with no audio arriving at all
 LEVELS_KEPT = 300  # a bit over a minute of pushed chunks
 TAB_ONLINE_WITHIN_S = 5  # a captured tab sends audio constantly; a gap this long means capture stopped
@@ -136,11 +138,23 @@ class Feed:
         connection to the feed's source, and nothing is stored.
         """
         queue: asyncio.Queue = asyncio.Queue(maxsize=LISTENER_QUEUE)
+        # Start with the last couple of seconds: a player won't begin until it has collected a fair
+        # amount of data, and waiting for that much live audio took 9 s on the phone. The price is
+        # that the listener hears everything that much later, which nobody notices.
+        recent = list(self.audio)
+        have = 0
+        start = len(recent)
+        while start > 0 and have < LISTEN_PREROLL_S * SAMPLE_RATE * 2:
+            start -= 1
+            have += len(recent[start])
+        if time.time() - self.last_audio_at <= TAB_ONLINE_WITHIN_S:
+            for chunk in recent[start:]:
+                queue.put_nowait(chunk)
         self._listeners.add(queue)
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer",
             "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", "pipe:0",
-            "-c:a", "libmp3lame", "-b:a", "32k", "-flush_packets", "1", "-f", "mp3", "pipe:1",
+            "-c:a", "libmp3lame", "-b:a", LISTEN_BITRATE, "-flush_packets", "1", "-f", "mp3", "pipe:1",
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         )  # fmt: skip
 

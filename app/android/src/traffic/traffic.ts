@@ -13,7 +13,10 @@ import type { WideFeed, WideMode } from './wide';
 export type Traffic = {
   near: NearFeed;
   wide: WideFeed;
-  arRadiusKm: number;
+  /** How far out the HUD's planes are asked for. */
+  readonly arRadiusKm: number;
+  /** null = the default. Takes effect with the next answer from adsb.lol, a second or two later. */
+  setArRadius: (km: number | null) => void;
   /** Every known plane, in no particular order. Meant to be called about once a second, not per frame. */
   all: () => Plane[];
   /** What all() covers, how old the wide data is, and why it's missing or stale ('' = fine). */
@@ -26,14 +29,20 @@ export function startTraffic(opts: {
   wideMode: WideMode;
   getPosition: () => LatLon | null;
 }): Traffic {
-  const arRadiusKm = opts.arRadiusKm ?? DEFAULT_RADIUS_KM;
+  let arRadiusKm = opts.arRadiusKm ?? DEFAULT_RADIUS_KM;
   const near = startLiveFeed({ radiusKm: arRadiusKm, getPosition: opts.getPosition });
   const wide = startWideFeed({ mode: opts.wideMode, getPosition: opts.getPosition, nearThrottled: near.throttled });
 
   return {
     near,
     wide,
-    arRadiusKm,
+    get arRadiusKm() {
+      return arRadiusKm;
+    },
+    setArRadius: (km) => {
+      arRadiusKm = km ?? DEFAULT_RADIUS_KM;
+      near.setRadius(arRadiusKm);
+    },
     all: () => {
       const nearPlanes = near.get().planes;
       const widePlanes = wide.planes(opts.getPosition());

@@ -264,5 +264,21 @@ check("context: connected state", "Radio: listening to Toledo Approach, audio on
 check("context: recent calls", "20 s ago: November 337 Bravo Golf, radar contact." in text, True)
 check("context: plane's controller", "probably talking to Toledo Approach 126.1, heard there 62 s ago" in text, True)
 
+# --- How far out the bar shows planes
+check("range: digits", actions("Set the range to 75 kilometers."), [{"type": "ar_range", "km": 75}])
+check("range: words", actions("change the range to seventy five"), [{"type": "ar_range", "km": 75}])
+check("range: bare", actions("range 100"), [{"type": "ar_range", "km": 100}])
+check("range: a hundred", actions("extend the bar range out to a hundred kilometers"), [{"type": "ar_range", "km": 100}])
+check("range: miles are nautical", actions("set the range to 40 miles"), [{"type": "ar_range", "km": 74}])
+check("range: over the limit is capped", actions("set the range to 150 km"), [{"type": "ar_range", "km": 100}])
+check("range: over the limit says so", "most the bar can show is 100" in rules.quick("set the range to 150 km", CTX)["answer"], True)
+check("range: floor", actions("set the radius to 2"), [{"type": "ar_range", "km": 5}])
+check("range: reset", actions("reset the range"), [{"type": "ar_range", "km": 0}])
+check("range: back to default", actions("put the range back to default"), [{"type": "ar_range", "km": 0}])
+check("range: asking", rules.quick("what's the range", {**CTX, "arRadiusKm": 75})["answer"], "The bar shows planes within 75 kilometers. You can set it anywhere up to 100.")
+check("range: not the radar zoom", actions("zoom the radar to 20 miles"), [{"type": "radar_range", "nm": 20}])
+check("range: nonsense goes to Aivana", rules.quick("set the range to something bigger", CTX), None)
+check("range action passes validation", tools.validate_actions([{"type": "ar_range", "km": 75}]), [{"type": "ar_range", "km": 75}])
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

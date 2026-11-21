@@ -17,6 +17,8 @@ export type VoiceAction = {
   n?: number;
   nm?: number;
   runway?: string;
+  /** ar_range: how far out the bar shows planes, km; 0 = the default. */
+  km?: number;
   /** connect_feed: the radio feed's id. */
   feed?: string;
   /** radio_audio: on | off | up | down. transcript: show | hide. */

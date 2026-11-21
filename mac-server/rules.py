@@ -14,7 +14,8 @@ from speech import describe
 
 NUMBER_WORDS = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
-    "nine": 9, "niner": 9, "ten": 10, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "hundred": 100,
+    "nine": 9, "niner": 9, "ten": 10, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90, "hundred": 100,
 }
 RUNWAY_WORDS = {"one zero": "10", "ten": "10", "two eight": "28", "twenty eight": "28", "one eight": "18", "eighteen": "18", "three six": "36", "thirty six": "36"}
 KIND_WORDS = {
@@ -48,6 +49,28 @@ def _number(word: str) -> int | None:
     if word.isdigit():
         return int(word)
     return NUMBER_WORDS.get(word)
+
+
+AR_RANGE_MIN_KM = 5
+AR_RANGE_MAX_KM = 100  # the app's own limit: the bar's data is asked for every few seconds
+
+
+def _amount(words: str) -> int | None:
+    """A number said or written: "75", "seventy five", "a hundred", "one hundred"."""
+    words = words.strip()
+    if words.isdigit():
+        return int(words)
+    parts = [w for w in words.split() if w not in ("a", "and")]
+    if not parts or any(p not in NUMBER_WORDS for p in parts):
+        return None
+    values = [NUMBER_WORDS[p] for p in parts]
+    if values == [1, 100] or values == [100]:
+        return 100
+    if len(values) == 1:
+        return values[0]
+    if len(values) == 2 and values[0] in (20, 30, 40, 50, 60, 70, 80, 90) and 1 <= values[1] <= 9:
+        return values[0] + values[1]
+    return None
 
 
 def _reply(answer: str, *actions: dict) -> dict:
@@ -100,6 +123,25 @@ def quick(text: str, context: dict) -> dict | None:
             return _reply(f"Radar at {nm} miles.", {"type": "radar_range", "nm": nm})
     if re.fullmatch(r"(reset|auto|automatic)( the)? radar( range| zoom)?|radar auto(matic)?|reset( the)? zoom", t):
         return _reply("Radar back to automatic.", {"type": "radar_range", "nm": 0})
+
+    # How far out the compass bar and the sky show planes ("set the range to 75 kilometers").
+    _what = r"(?:bar |view |viewing |plane |planes |ar |sky |compass |headband |display )?(?:range|radius|distance)"
+    m = re.fullmatch(
+        rf"(?:(?:set|change|make|put|switch|extend|widen|increase|expand|raise|reduce|narrow|shrink|lower|bring|take|push)(?: the| my)? {_what}(?: out| in| down| up)?(?: to)?|{_what}(?: to| of)?) (.+?)(?: (nautical miles?|miles?|nm|kilometers?|kilometres?|km|k|clicks))?",
+        t,
+    )
+    if m and _amount(m.group(1)) is not None:
+        value = _amount(m.group(1))
+        km = round(value * 1.852) if (m.group(2) or "").startswith(("mile", "nautical", "nm")) else value
+        if km > AR_RANGE_MAX_KM:
+            return _reply(f"The most the bar can show is {AR_RANGE_MAX_KM} kilometers, so that's what I set. Planes farther out are in the list.", {"type": "ar_range", "km": AR_RANGE_MAX_KM})
+        km = max(AR_RANGE_MIN_KM, km)
+        return _reply(f"Range {km} kilometers.", {"type": "ar_range", "km": km})
+    if re.fullmatch(rf"(?:reset|default|normal)(?: the| my)? {_what}|(?:set |put )?(?:the |my )?{_what} (?:back )?to (?:the )?(?:default|normal)|reset (?:the |my )?{_what}", t):
+        return _reply("Range back to 50 kilometers.", {"type": "ar_range", "km": 0})
+    if re.fullmatch(rf"(?:whats|what is)(?: the| my)? {_what}|how far (?:can i see|does the bar (?:go|reach|show)|out (?:can i see|does it (?:go|show)))", t):
+        km = context.get("arRadiusKm")
+        return _reply(f"The bar shows planes within {round(km)} kilometers. You can set it anywhere up to {AR_RANGE_MAX_KM}." if km else "I don't know the range right now.")
 
     m = re.fullmatch(r"(?:(?:were|we are|theyre|they are) (?:using|on|landing|landing on) |(?:switch|change)(?: to| the runway to)? |(?:set )?(?:the )?(?:active )?)runway (?:to )?(.+?)(?: is active| in use)?", t)
     if m:

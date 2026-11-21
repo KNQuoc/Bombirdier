@@ -111,7 +111,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] `GET /api/feeds/{id}/audio` MP3 stream (one-time ticket for Wi-Fi); audio element on the phone; the radio goes silent while the assistant listens and low while it talks
 - [x] Connected view: LIVE pill, 🔇/💬 icons, last four calls scrolling where the radar is
 - [x] Separate audio/transcript switches, remembered per feed for the session
-- [ ] Done: "Can I access?" plays Toledo Approach within ~5 s; mute/hide/disconnect all work. Works in the desktop preview and on the Pixel (connect by voice, audio playing); **start-up time not measured, and looking at a controller icon in the headset not tried**
+- [x] Done on the Pixel: connecting plays the feed in 0.5 s (audible, confirmed by Kien); mute, unmute, hide transcript, louder and disconnect work
+- [ ] Looking at a controller icon in the headset to focus it: not tried
 - [ ] Sector guesses for Detroit and Cleveland Center are from sector names; check against what is actually heard
 
 ## Phase 6: stretch goals
@@ -128,6 +129,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · voice · "Set the range to 75 kilometers" changes how far out the compass bar and the sky show planes (5 to 100 km, same setting as AR radius; "reset the range", "what's the range"). Applied without restarting the traffic feed. Checked on the Pixel: 50 to 100 km brought an airliner 81 km away onto the bar.
+- 2026-11-21 · phase 5 · On the Pixel, confirmed by Kien: the radio is audible. Audio took 8.9 s to start; with a 128 kbit/s stream and 2.5 s of recent audio sent at once it starts in 0.5 s. Mute, unmute, hide transcript, louder and disconnect all ran on the phone. A plane's card no longer hangs into the voice subtitles.
 - 2026-11-21 · phase 5 · On the Pixel: connecting to a feed by voice works and the live audio plays (Toledo, Wood County and Cleveland Center were all connected); mute and transcript commands ran. Not yet measured: how long the audio takes to start, and focus on a controller icon by looking at it in the headset. An empty compass bar now says "No planes within 50 km · 80 farther out are in the list ☰" (the bare "No planes" beside a radar showing the runways read as a fault).
 - 2026-11-21 · phase 4 · Callsign fixes from real calls: a flight number no longer runs into the next sentence ("Skywest 4129. Seven…"), tail fragments written in one piece are read ("570U"), and Whisper's radio prompt is now vocabulary per kind of feed (airline, mixed, pattern) with no example calls, after an example came back as a transcript and SkyWest flights were written as Skyhawks. The phone now tells the Mac which planes each controller is probably working, for spelling. One-word transcripts of static are dropped.
 - 2026-11-21 · phase 5 · Controllers on the compass bar with live/stopped dots, cards, and "Can I access?": connects to a feed, plays its audio on the phone and scrolls its transcript; mute, volume and transcript are separate voice switches. Plane cards say who the plane is likely talking to. Checked in the desktop preview against the live captured feeds; phone and headset still to do.

@@ -364,6 +364,8 @@ function voiceContext() {
       distanceKm: viewer ? airportView(viewer, runway.ident)?.distanceKm ?? null : null,
     },
     traffic: { total: all.length, radiusNm: WIDE_RADIUS_NM },
+    // How far out planes get icons on the bar and brackets in the sky ("set the range to 75").
+    arRadiusKm: traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM,
     list: listView
       ? {
           open: true,
@@ -407,6 +409,14 @@ const assistant = createAssistant({
       saveAppSettings(appSettings);
       runwaySelect.value = ident;
       return true;
+    },
+    setArRadiusKm: (km) => {
+      // Same setting as "AR radius" on the settings screen: it sticks.
+      settings = { ...settings, radiusKm: km == null ? null : Math.min(MAX_AR_RADIUS_KM, Math.max(1, Math.round(km))) };
+      saveSettings(settings);
+      radiusInput.value = settings.radiusKm == null ? '' : String(settings.radiusKm);
+      traffic?.setArRadius(settings.radiusKm);
+      console.info(`[traffic] AR radius ${settings.radiusKm ?? DEFAULT_RADIUS_KM} km`);
     },
     coverageNm: () => WIDE_RADIUS_NM,
     knownPlanes: () => traffic?.all().length ?? 0,
