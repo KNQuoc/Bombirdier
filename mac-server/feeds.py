@@ -18,6 +18,7 @@ Nothing is written to disk beyond a temporary file per call, deleted as soon as 
 """
 import asyncio
 import json
+import math
 import os
 import tempfile
 import time
@@ -29,13 +30,14 @@ import config
 import gpu
 import radio_parse
 import transcribe
-from splitter import SAMPLE_RATE, CallSplitter
+from splitter import SAMPLE_RATE, CallSplitter, _rms
 
 # FEEDS_FILE in the environment points at another list (the tests use one with a local recording).
 FEEDS_FILE = Path(os.environ.get("FEEDS_FILE") or config.HERE / "feeds.json")
 STOP_AFTER_IDLE_S = 120
 RECONNECT_AFTER_S = 30
 ONLINE_WITHIN_S = 15  # audio arrived this recently = the feed is up
+LEVELS_KEPT = 300  # a bit over a minute of pushed chunks
 TAB_ONLINE_WITHIN_S = 5  # a captured tab sends audio constantly; a gap this long means capture stopped
 EVENTS_KEPT = 200
 BUFFER_S = 60  # recent audio kept in memory, for replaying to the phone (Phase 5)
@@ -50,6 +52,10 @@ def _next_event_id() -> int:
     global _event_id
     _event_id += 1
     return _event_id
+
+
+def _db(rms: float) -> float | None:
+    return round(20 * math.log10(rms / 32768), 1) if rms >= 1 else None
 
 
 def _ffmpeg_input(cfg: dict) -> list[str] | None:
@@ -84,6 +90,9 @@ class Feed:
         # A tab feed has no worker: its audio is pushed in by the capture page.
         self.is_tab = cfg.get("kind") == "tab"
         self._splitter = CallSplitter()
+        # How loud each recent chunk of pushed audio was: tells a quiet frequency (the feed's own
+        # background, or digital silence) from a tab whose sound isn't coming through at all.
+        self._levels: deque[tuple[float, float]] = deque(maxlen=LEVELS_KEPT)
 
     @property
     def configured(self) -> bool:
@@ -101,6 +110,7 @@ class Feed:
         self.error = ""
         self.last_audio_at = now
         self.audio.append(pcm)
+        self._levels.append((now, _rms(pcm)))
         for call in self._splitter.feed(pcm):
             self._queue(call)
 
@@ -116,6 +126,10 @@ class Feed:
             "configured": self.configured,
             "status": self.current_status(),
             "lastCallAt": self.last_call_at,
+            # Loudness of what is arriving, in dB below full scale (0 = as loud as it gets, None =
+            # nothing or pure digital silence): right now, and the loudest in the last minute.
+            "levelDb": _db(self._levels[-1][1]) if self._levels and time.time() - self._levels[-1][0] < TAB_ONLINE_WITHIN_S else None,
+            "peakDb": _db(max((rms for at, rms in self._levels if time.time() - at <= 60), default=0.0)),
             "error": self.error or None,
         }
 
