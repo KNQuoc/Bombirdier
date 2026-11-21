@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 import asyncio
 
+import airports
 import config
 import feeds
 import flightinfo
@@ -184,6 +185,26 @@ async def radio_summary(hours: float = 6):
     return {"logging": radiolog.enabled, "hours": hours, **radiolog.summary(records, _feed_names())}
 
 
+# The card's lookups stop below this many OpenSky requests left today: the rest are for questions.
+ORIGIN_KEEPS_REQUESTS = 60
+
+
+@app.get("/api/flights/origin")
+async def flight_origin(hex: str, helicopter: bool = False):
+    """Where a plane with no route on file left from, for its card: the start of OpenSky's track
+    of this flight, named after the airfield it is at. `origin` is null when that isn't known."""
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", hex):
+        return JSONResponse({"error": "bad address"}, status_code=400)
+    left_today = opensky.remaining
+    if left_today and left_today.isdigit() and int(left_today) < ORIGIN_KEEPS_REQUESTS:
+        return {"origin": None, "why": "few OpenSky requests left today"}
+    took = await _takeoff({"id": hex.lower(), "kind": "helicopter" if helicopter else "plane"}, None)
+    field = took.get("field") if took and took.get("fromGround") else None
+    if not field:
+        return {"origin": None}
+    return {"origin": {**{k: field[k] for k in ("code", "name", "city", "lat", "lon", "kind")}, "exact": took["exact"], "at": took["at"].timestamp()}}
+
+
 @app.get("/api/weather/wind")
 async def wind(lat: float, lon: float):
     """The wind at the weather station nearest a point (for picking the runway the wind favors)."""
@@ -227,15 +248,32 @@ async def _transcribe(req: AskRequest) -> str:
 
 
 async def _takeoff(plane: dict, prog: dict | None) -> dict | None:
-    """When and where the plane took off, from OpenSky's track of this flight. None if it has none.
+    """When and where the plane took off: the phone's own sighting of it leaving a field it had
+    stopped on, else OpenSky's track of this flight, else (for a plane with no route) the phone's
+    sighting of it climbing away from somewhere. None if nobody has it.
 
-    When the takeoff wasn't at the route's origin (or there is no route), the place is named after
-    the nearest weather station, which at a takeoff point is nearly always that airport's own.
+    When the takeoff wasn't at the route's origin (or there is no route, as for most small planes),
+    the place is the airfield the track starts at (airports.py), or failing that the nearest
+    weather station.
     """
+    seen = airports.seen_leaving(plane, prog)
+    if seen and not seen["leaving"]:
+        return seen
     took = opensky.takeoff(await opensky.track(plane), prog)
+    if seen and not prog and not (took and took["fromGround"]):
+        # All anyone has: the phone saw it climb away from somewhere (a touch-and-go, perhaps).
+        return seen
     if took and took["fromGround"] and not took["atOrigin"]:
-        station = await forecast.nearest("metar", took["lat"], took["lon"])
-        took["near"] = flightinfo.station_name(station) if station and station.get("distanceNm", 99) <= 12 else None
+        field = airports.nearest(took["lat"], took["lon"], max_nm=6, helicopter=plane.get("kind") == "helicopter")
+        if field:
+            # On it, or only somewhere near it (first seen already climbing away)?
+            low = took["altM"] is not None and field["elevationFt"] is not None and took["altM"] <= field["elevationFt"] * 0.3048 + 200
+            took["field"] = field
+            took["airport"] = airports.spoken(field)
+            took["exact"] = field["distanceNm"] <= 3 and (took["onGround"] or low)
+        else:
+            station = await forecast.nearest("metar", took["lat"], took["lon"])
+            took["near"] = flightinfo.station_name(station) if station and station.get("distanceNm", 99) <= 12 else None
     return took
 
 
@@ -302,7 +340,7 @@ async def ask(req: AskRequest) -> dict:
         wx = await flightinfo.weather(plane, prog) if plane and kind.startswith("weather") else {}
         # When it really took off (OpenSky's track): for "when did it take off?", and for a plane
         # with no route, where at least knowing where it came from is something.
-        took = await _takeoff(plane, prog) if plane and (kind == "departed" or (kind == "route" and not prog)) else None
+        took = await _takeoff(plane, prog) if plane and (kind == "departed" or (kind in ("route", "origin") and not prog)) else None
         reply = {"answer": flightinfo.answer(kind, plane, prog, wx, took), "actions": []}
     if reply is None:
         llm_started = time.time()

@@ -86,7 +86,9 @@ async def track(plane: dict) -> dict | None:
 def takeoff(tr: dict | None, prog: dict | None = None, now: datetime | None = None) -> dict | None:
     """What a track says about the start of the flight:
 
-        {at, agoMin, lat, lon, fromGround, atOrigin, awayFromOriginNm}
+        {at, agoMin, lat, lon, altM, onGround, fromGround, atOrigin, awayFromOriginNm}
+
+    `onGround` = that first point was reported on the ground (rather than just low); `altM` its altitude.
 
     `fromGround` False = the plane was first seen in the air: `at` is only when tracking began.
     `atOrigin` True = that first point is at the airport the route says it left from.
@@ -106,6 +108,8 @@ def takeoff(tr: dict | None, prog: dict | None = None, now: datetime | None = No
         "agoMin": max(0.0, (now.timestamp() - first[0]) / 60),
         "lat": first[1],
         "lon": first[2],
+        "altM": first_alt,
+        "onGround": bool(first[5]),
         "fromGround": from_ground,
         "atOrigin": False,
         "awayFromOriginNm": None,

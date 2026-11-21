@@ -138,6 +138,7 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `radio_parse.py` | Callsigns and position reports out of a transcribed call |
 | `radio.py` | The feed and radio endpoints, including the live audio stream the phone plays |
 | `opensky.py` | When and where a plane really took off, from the OpenSky Network's free track of the flight |
+| `airports.py` | Which airfield a point is at, for naming where a plane left from (`data/airports.json`, made by `build_airports.py` from OurAirports) |
 | `forecast.py` | Weather where you are and airport forecasts (aviationweather.gov), answered without Aivana |
 | `radiolog.py` | The optional written record of calls (`RADIO_LOG=on`) and its summary |
 | `radiotalk.py` | Radio voice commands answered without Aivana: "Can I access?", mute, transcript, "what did they just say?" |

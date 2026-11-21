@@ -36,7 +36,9 @@ import { WOOD_COUNTY } from './airports/1g0';
 import { mslFtToEllipsoidM, runwayEnd } from './airports/airport';
 import { AUTO_RUNWAY, loadAppSettings, saveAppSettings } from './app-settings';
 import type { AppSettings } from './app-settings';
-import { cachedRoute, cachedRouteInfo, lookupRoutes } from './flights/adsb';
+import { cachedRoute, cachedRouteInfo, hasNoRoute, lookupRoutes } from './flights/adsb';
+import { createDepartures } from './departures/departures';
+import type { AirfieldKind } from './airports/lookup';
 import { haversineKm } from './flights/geo';
 import { fixedPosition, watchPosition } from './flights/gps';
 import type { GpsWatch } from './flights/gps';
@@ -267,6 +269,10 @@ const pattern = createPatternTracker(AIRPORT);
 const airportView = createAirportView(AIRPORT);
 /** Works out the runway in use from landings, takeoffs and downwind legs (used when the setting is Auto). */
 const runwayDetector = createRunwayDetector(AIRPORT);
+/** Where each plane was last on the ground: the "From Wood County · 25 min ago" line of planes with no route. */
+const departures = createDepartures({ geoidSeparationM: AIRPORT.geoidSeparationM });
+/** A plane with no route on file and none coming (most small planes): the card says where it left from instead. */
+const routeless = (p: Plane) => !p.origin && !p.destination && hasNoRoute(p.callsign);
 
 /**
  * The runway everything is drawn and named for: the one set by hand, or in Auto the one the traffic
@@ -367,6 +373,8 @@ function brief(p: Plane) {
     medical: p.medical,
     tag: p.tag,
     leg: legNote(p.id),
+    // Where the app saw it leave from (what its card says), so the answer matches.
+    seenLeaving: departures.brief(p.id, Date.now()),
     // Who it's probably talking to, and whether it has been heard there.
     radio: appSettings.radioCalls ? (planeRadio(p)?.brief ?? null) : null,
   };
@@ -649,11 +657,13 @@ function frame() {
     const said = radio.reportedLeg(p.id);
     // Who it's probably talking to (or was heard talking to), on a line of its own.
     const talkingTo = appSettings.radioCalls ? (planeRadio(p)?.line ?? null) : null;
-    if (!leg && !said && !talkingTo) return p;
+    // Where it left from, for a plane with no route. Not in the pattern: that line says more.
+    const from = !leg && !p.onGround && routeless(p) ? departures.line(p.id, Date.now()) : null;
+    if (!leg && !said && !talkingTo && !from) return p;
     const code = leg && legCode(leg);
     if (code) legCodes[p.id] = code;
     const inPattern = [leg && legLabel(leg, runwayEnd(AIRPORT, activeRunway)), said && `📻 said ${said}`].filter(Boolean).join(' · ');
-    return { ...p, note: [inPattern, talkingTo].filter(Boolean).join('\n') };
+    return { ...p, note: [inPattern, from, talkingTo].filter(Boolean).join('\n') };
   });
   const shown = applySkyFilter(planes, skyFilter);
   const viewer = gps?.get() ?? null;
@@ -1205,11 +1215,46 @@ setInterval(() => {
 }, 500);
 // Is the Mac server there? (Head-tilt only listens when it is.)
 setInterval(checkServer, 8000);
+
+/** The plane being looked at and since when, and when each plane's origin was last asked of the Mac. */
+let heldFocus: { id: string; sinceMs: number } | null = null;
+const originAskedAt = new Map<string, number>();
+const AIRFIELD_KINDS = ['L', 'M', 'S', 'P', 'H'];
+/**
+ * For a plane with no route that the app never saw on the ground: ask the Mac, which reads the
+ * start of OpenSky's track. Only for a plane looked at for a couple of seconds, and once a quarter
+ * of an hour per plane: OpenSky allows a limited number of requests a day.
+ */
+function askOrigin(nowMs: number) {
+  const p = lastHud.focus;
+  if (!p) return void (heldFocus = null);
+  if (heldFocus?.id !== p.id) return void (heldFocus = { id: p.id, sinceMs: nowMs });
+  if (nowMs - heldFocus.sinceMs < 2000 || !serverHealth || p.onGround || !routeless(p) || !/^[0-9a-f]{6}$/.test(p.id)) return;
+  // Known already, unless all the app has is "seen leaving" (a touch-and-go says nothing about where it started).
+  const known = departures.of(p.id, nowMs);
+  if (departures.at(p.id) || (known && known.how !== 'leaving')) return;
+  if (nowMs - (originAskedAt.get(p.id) ?? 0) < 15 * 60_000) return;
+  originAskedAt.set(p.id, nowMs);
+  void macServer.origin(p.id, p.kind === 'helicopter').then((o) => {
+    if (!o) return;
+    const kind = (AIRFIELD_KINDS.includes(o.kind) ? o.kind : 'S') as AirfieldKind;
+    departures.set(p.id, { field: { code: o.code, name: o.name, city: o.city, kind, lat: o.lat, lon: o.lon }, atMs: o.atS * 1000, how: o.exact ? 'from' : 'near', source: 'opensky' }, Date.now());
+  });
+}
+// Departures: watch every known plane (near and wide) for leaving an airfield.
+setInterval(() => {
+  if (!traffic) return;
+  const now = Date.now();
+  departures.update(traffic.all(), now);
+  askOrigin(now);
+}, 2000);
 // For testing from a console (desktop, or chrome://inspect on the phone): bombirdier.ask('show me the helicopters').
 (window as any).bombirdier = {
   ask: (text: string) => assistant.askText(text),
   listen: () => assistant.listen(),
   context: voiceContext,
+  /** Every plane the app knows the departure airfield of, as its card would say it. */
+  departures: () => departures.known(Date.now()),
   debug: () => ({ server: serverHealth, radio: radio.describe(), listening: listener.state(), station: lastHud.station?.id ?? null, focus: lastHud.focus ? { name: lastHud.focus.callsign ?? lastHud.focus.registration, note: lastHud.focus.note ?? null } : null, heard: radio.latest()?.event.text ?? null, highlighted: radio.highlightIds(), voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
 };
 

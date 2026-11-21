@@ -240,6 +240,15 @@ function pickLeg(entry: RouteEntry, lat?: number, lon?: number): [LocatedAirport
 
 /** Cached route for a callsign, or undefined if it hasn't been looked up (or the entry expired). */
 export const cachedRoute = (callsign: string): Route | undefined => routeCache.get(callsign);
+/**
+ * True when this plane has no route and none is coming: its callsign isn't an airline's (a tail
+ * number, as on nearly every small plane), or it was looked up and nothing was found.
+ */
+export function hasNoRoute(callsign: string | null): boolean {
+  if (!callsign || !ROUTABLE.test(callsign)) return true;
+  const route = routeCache.get(callsign);
+  return !!route && !route[0] && !route[1];
+}
 /** The airports of a callsign's route, if it has a known one. */
 export const cachedRouteInfo = (callsign: string): RouteInfo | undefined => routeInfoCache.get(callsign);
 

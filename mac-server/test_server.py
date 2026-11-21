@@ -138,7 +138,7 @@ for said, kind in [
     ("When does it land?", "eta"), ("What time will that plane arrive?", "eta"), ("What's its ETA?", "eta"), ("How much longer until it gets there", "eta"),
     ("How far has it flown?", "distance"), ("How far does it have to go?", "distance"), ("How many miles left?", "distance"),
     ("When did it take off?", "departed"), ("How long has it been flying?", "departed"),
-    ("Where is it going?", "route"), ("Where did that plane come from?", "route"), ("Where's it headed?", "route"),
+    ("Where is it going?", "route"), ("Where did that plane come from?", "origin"), ("Where's it headed?", "route"),
     ("What's the weather at its destination?", "weather_destination"), ("How's the weather where it's going?", "weather_destination"),
     ("What's the weather where it is right now?", "weather_below"), ("How is the weather along the way?", "weather_below"),
     ("What was the weather where it came from?", "weather_origin"),
@@ -445,6 +445,59 @@ check("context: actual takeoff, and no guessed departure beside it", [l for l in
       ["Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): from Charlotte at 12:41 AM, 1 hour 40 minutes ago."])
 check("context: no route, still the takeoff", F.context_lines(NO_ROUTE, None, {}, orphan), ["Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): near Boston at 12:41 AM, 1 hour 40 minutes ago."])
 check("ids that aren't real addresses are not asked about", [O._hex({"id": "~2a3b4c"}), O._hex({"id": "A32095"}), O._hex({})], [None, "a32095", None])
+
+# --- Which airfield a plane left from (airports.py), with a hand-made list: small planes file no plan
+import airports as AP  # noqa: E402
+
+AP.use([
+    ["1G0", "Wood County Airport", "Bowling Green", 41.391, -83.6301, 673, "S"],
+    ["6OH7", "Nietz Airport", "Bowling Green", 41.42, -83.65, 685, "P"],
+    ["85OH", "Wood County Hospital Heliport", "Bowling Green", 41.3742, -83.6665, 690, "H"],
+    ["FDY", "Findlay Airport", "Findlay", 41.0135, -83.6687, 813, "M"],
+    ["DTW", "Detroit Metropolitan Wayne County Airport", "Detroit", 42.2138, -83.3538, 645, "L"],
+    ["OI77", "Mc Ardle Airport", "Fostoria", 41.25, -83.45, 760, "P"],
+])
+check("airfield: on the field", AP.nearest(41.392, -83.632)["code"], "1G0")
+check("airfield: a public airport beats a private strip that is a little closer", AP.nearest(41.408, -83.642)["code"], "1G0")
+check("airfield: right on a private strip, the public one clearly farther", AP.nearest(41.2505, -83.4505)["code"], "OI77")
+check("airfield: near a private strip but not on it: nothing", AP.nearest(41.28, -83.45, max_nm=3), None)
+check("airfield: nothing within reach", AP.nearest(40.5, -83.0), None)
+check("airfield: a heliport is for helicopters", (AP.nearest(41.3742, -83.6665)["code"], AP.nearest(41.3742, -83.6665, helicopter=True)["code"]), ("1G0", "85OH"))
+check("airfield spoken: with the town when the name doesn't say", AP.spoken(AP.nearest(41.391, -83.63)), "Wood County Airport in Bowling Green")
+check("airfield spoken: the name already says", (AP.spoken(AP.nearest(41.0135, -83.6687)), AP.spoken(AP.nearest(42.2138, -83.3538))), ("Findlay Airport", "Detroit Metropolitan Wayne County Airport"))
+
+# A BGSU trainer with no route: the phone saw it leave Wood County, and says so on its card.
+SKYHAWK = {"id": "a1b2c3", "callsign": "N529BG", "registration": "N529BG", "typeName": "Cessna Skyhawk", "lat": 41.3, "lon": -83.5, "groundSpeedKt": 95, "route": None,
+           "seenLeaving": {"code": "1G0", "name": "Wood County Airport", "city": "Bowling Green", "kind": "S", "lat": 41.391, "lon": -83.6301, "agoMin": 25, "how": "from"}}
+left = AP.seen_leaving(SKYHAWK, None, LATER)
+check("seen leaving: shaped like a takeoff", (left["fromGround"], left["exact"], left["leaving"], round(left["agoMin"]), left["airport"]), (True, True, False, 25, "Wood County Airport in Bowling Green"))
+check("seen leaving: when did it take off (no airline, so no gate-time caveat)", F.answer("departed", SKYHAWK, None, {}, left),
+      "It took off from Wood County Airport in Bowling Green at 1:55 AM, 25 minutes ago. I have no route for it, so I don't know where it's headed.")
+check("seen leaving: where is it going", F.answer("route", SKYHAWK, None, {}, left),
+      "There's no route on file for N 5 2 9 B G, so I don't know where it's going. It took off from Wood County Airport in Bowling Green at 1:55 AM, 25 minutes ago.")
+# A touch-and-go, or first seen already climbing out: where it was, not where the flight began.
+climbing = AP.seen_leaving({**SKYHAWK, "seenLeaving": {**SKYHAWK["seenLeaving"], "how": "leaving"}}, None, LATER)
+check("seen climbing away: flags", (climbing["exact"], climbing["leaving"], climbing["approx"]), (False, True, True))
+check("seen climbing away: when did it take off", F.answer("departed", SKYHAWK, None, {}, climbing),
+      "I saw it climbing away from Wood County Airport in Bowling Green around 1:55 AM, 25 minutes ago, but not where it started from. I have no route for it, so I don't know where it's headed either.")
+check("seen climbing away: where is it going", F.answer("route", SKYHAWK, None, {}, climbing),
+      "There's no route on file for N 5 2 9 B G, so I don't know where it's going. I saw it climbing away from Wood County Airport in Bowling Green around 1:55 AM, 25 minutes ago, but not where it started from.")
+check("seen climbing away: context", F.context_lines(SKYHAWK, None, {}, climbing),
+      ["Seen climbing away from Wood County Airport in Bowling Green around 1:55 AM, 25 minutes ago (it may have taken off there or only touched down and gone; where the flight began is not known)."])
+check("where did it come from: its own question", [F.wants(q) for q in ("where did it come from", "where did that plane take off from", "where is it from", "which airport did it leave from", "where did it depart", "where is it going", "when did it take off")],
+      ["origin", "origin", "origin", "origin", "origin", "route", "departed"])
+check("where did it come from: no route, seen leaving its field", F.answer("origin", SKYHAWK, None, {}, left),
+      "It took off from Wood County Airport in Bowling Green at 1:55 AM, 25 minutes ago. I have no route for it, so I don't know where it's headed.")
+check("where did it come from: no route, nothing seen", F.answer("origin", SKYHAWK, None, {}, None),
+      "I don't know where N 5 2 9 B G came from: there's no route on file for it, and nobody I can ask saw it take off.")
+check("where did it come from: with a route, the route", F.answer("origin", AAL, p, {}, None).startswith("American 3035 is flying from Charlotte to "), True)
+near_track = AP.seen_leaving({**SKYHAWK, "seenLeaving": {**SKYHAWK["seenLeaving"], "how": "near"}}, None, LATER)
+check("a track that starts near a field", F.answer("departed", SKYHAWK, None, {}, near_track),
+      "It took off near Wood County Airport in Bowling Green at 1:55 AM, 25 minutes ago. I have no route for it, so I don't know where it's headed.")
+check("context: the airfield", F.context_lines(SKYHAWK, None, {}, left), ["Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): from Wood County Airport in Bowling Green at 1:55 AM, 25 minutes ago."])
+check("seen leaving: nothing sent, nothing made up", [AP.seen_leaving(AAL), AP.seen_leaving({"seenLeaving": {"name": "X"}}), AP.seen_leaving({"seenLeaving": "1G0"})], [None, None, None])
+check("seen leaving: at the route's origin or not", [AP.seen_leaving(SKYHAWK, {"origin": {"lat": 41.39, "lon": -83.63}}, LATER)["atOrigin"], AP.seen_leaving(SKYHAWK, {"origin": {"lat": 35.2, "lon": -80.9}}, LATER)["atOrigin"]], [True, False])
+check("an airfield from a track", F.left_where({"airport": "Findlay Airport", "exact": True}) + "|" + F.left_where({"airport": "Findlay Airport", "exact": False}) + "|" + F.left_where({"near": "Boston"}) + "|" + F.left_where({}), " from Findlay Airport| near Findlay Airport| near Boston|")
 
 # --- Only some planes in the sky
 HELIS = [{"type": "sky_filter", "filter": {"kind": "helicopters"}}]

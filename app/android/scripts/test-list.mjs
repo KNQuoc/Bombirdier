@@ -701,6 +701,158 @@ try {
     const odd = planes.filter((p) => !p.onGround && p.kind !== 'helicopter' && !engineKind(p)).slice(0, 12);
     for (const p of odd) console.log(`  unclassified: ${p.callsign ?? p.id} type=${p.typeCode} cat=${p.category} alt=${p.altitudeFt} gs=${p.groundSpeedKt}`);
   }
+  // ---- Where a plane left from: small planes file no flight plan, so it is worked out by watching ----
+  const AF = await vite.ssrLoadModule('/src/airports/lookup.ts');
+  const DEP = await vite.ssrLoadModule('/src/departures/departures.ts');
+  test('airfields: which one a point is at', () => {
+    assert.equal(AF.nearestAirfield(41.392, -83.632)?.code, '1G0');
+    assert.equal(AF.nearestAirfield(41.0135, -83.6687)?.code, 'FDY');
+    assert.equal(AF.nearestAirfield(41.2, -83.2, { maxNm: 1 }), null, 'open country');
+    // Nietz (private, 2.4 nm from Wood County): right on it, it is Nietz; a mile off, the public airport.
+    const nietz = AF.nearestAirfield(41.391, -83.6301, { maxNm: 5 });
+    assert.equal(nietz.code, '1G0');
+    // The hospital pad two miles from the airport is a place only a helicopter leaves from.
+    const pad = [41.3742, -83.6665];
+    const forPlane = AF.nearestAirfield(pad[0], pad[1], { maxNm: 3 });
+    const forHeli = AF.nearestAirfield(pad[0], pad[1], { maxNm: 3, helicopter: true });
+    assert.notEqual(forPlane?.kind, 'H');
+    assert.equal(forHeli?.kind, 'H');
+    assert.equal(AF.nearestAirfield(pad[0], pad[1], { maxNm: 3, helicopter: true, publicOnly: true })?.kind, 'S');
+  });
+  test('airfields: names short enough for a card', () => {
+    const short = (name, city = 'Town', code = 'XXX', kind = 'S') => AF.shortName({ name, city, code, kind });
+    assert.equal(short('Wood County Airport'), 'Wood County');
+    assert.equal(short('Findlay Airport'), 'Findlay');
+    assert.equal(short('Toledo Executive Airport'), 'Toledo Executive');
+    assert.equal(short('Windsor International Airport'), 'Windsor');
+    assert.equal(short('Deshler Municipal Landing Strip'), 'Deshler');
+    assert.equal(short('Aring Field'), 'Aring Field');
+    assert.equal(short('Eugene F. Kranz Toledo Express Airport', 'Toledo', 'TOL', 'M'), 'Toledo (TOL)');
+    assert.equal(short('Detroit Metropolitan Wayne County Airport', 'Detroit', 'DTW', 'L'), 'Detroit (DTW)');
+    assert.equal(short('Wood County Hospital Heliport', 'Bowling Green', '85OH', 'H'), 'Wood County Hospital');
+    assert.equal(short('Mercy Health St Charles Hospital Heliport', 'Oregon', 'OI44', 'H'), 'Mercy Health St Charles…');
+  });
+  // A Skyhawk with no altitude from GPS (so the barometric one is used), at Wood County unless told otherwise.
+  const skyhawk = (over = {}) => plane({ id: 'a1b2c3', callsign: 'N529BG', lat: 41.391, lon: -83.6301, altitudeFt: 673, altitudeGeomFt: null, groundSpeedKt: 0, trackDeg: 280, ...over });
+  const T = 1_800_000_000_000;
+  const MIN = 60_000;
+  test('departures: stopped on a field, then gone: it is from there', () => {
+    const d = DEP.createDepartures();
+    d.update([skyhawk({ onGround: true })], T);
+    assert.equal(d.line('a1b2c3', T), null, 'still there');
+    assert.equal(d.at('a1b2c3')?.code, '1G0');
+    d.update([skyhawk({ lat: 41.395, lon: -83.66, altitudeFt: 1500, groundSpeedKt: 80, verticalRateFpm: 700 })], T + MIN);
+    assert.equal(d.line('a1b2c3', T + MIN), 'From Wood County · just now');
+    d.update([skyhawk({ lat: 41.2, lon: -84.0, altitudeFt: 3500, groundSpeedKt: 105 })], T + 25 * MIN);
+    assert.equal(d.line('a1b2c3', T + 25 * MIN), 'From Wood County · 25 min ago');
+    assert.equal(d.line('a1b2c3', T + 100 * MIN), 'From Wood County · 1 h 40 min ago');
+    assert.deepEqual(d.brief('a1b2c3', T + 25 * MIN), { code: '1G0', name: 'Wood County Airport', city: 'Bowling Green', kind: 'S', lat: 41.391, lon: -83.6301, agoMin: 25, how: 'from' });
+    assert.equal(d.line('a1b2c3', T + 9 * 60 * MIN), null, 'too long ago to mean anything');
+    assert.deepEqual(d.known(T + 25 * MIN), [{ id: 'a1b2c3', line: 'From Wood County · 25 min ago', source: 'seen' }]);
+  });
+  test('departures: a full stop somewhere else makes that the new start', () => {
+    const d = DEP.createDepartures();
+    d.update([skyhawk({ onGround: true })], T);
+    d.update([skyhawk({ lat: 41.2, lon: -83.65, altitudeFt: 3000, groundSpeedKt: 100 })], T + 8 * MIN);
+    assert.match(d.line('a1b2c3', T + 8 * MIN), /^From Wood County/);
+    // Lands at Findlay and taxis in: it is there now, not "from" anywhere.
+    d.update([skyhawk({ lat: 41.0135, lon: -83.6687, altitudeFt: 813, onGround: true, groundSpeedKt: 12 })], T + 20 * MIN);
+    assert.equal(d.line('a1b2c3', T + 20 * MIN), null);
+    assert.equal(d.at('a1b2c3')?.code, 'FDY');
+    d.update([skyhawk({ lat: 41.1, lon: -83.67, altitudeFt: 2500, groundSpeedKt: 95, verticalRateFpm: 500 })], T + 30 * MIN);
+    assert.match(d.line('a1b2c3', T + 30 * MIN), /^From Findlay · /);
+    // Parked with the transponder off (no fresh position for a while), then seen flying: a stop all the same.
+    const e = DEP.createDepartures();
+    e.update([skyhawk({ lat: 41.0135, lon: -83.6687, altitudeFt: 900, groundSpeedKt: 65, verticalRateFpm: -400 })], T);
+    e.update([skyhawk({ lat: 41.03, lon: -83.6687, altitudeFt: 1600, groundSpeedKt: 80, verticalRateFpm: 600 })], T + 20 * MIN);
+    assert.equal(e.line('a1b2c3', T + 20 * MIN), 'From Findlay · just now');
+  });
+  test('departures: a touch-and-go is "seen leaving", and never replaces where it is from', () => {
+    // Origin unknown: low over Findlay at flying speed, then climbing away a minute later.
+    const d = DEP.createDepartures();
+    d.update([skyhawk({ lat: 41.0135, lon: -83.66, altitudeFt: 1000, groundSpeedKt: 70, verticalRateFpm: -400 })], T);
+    d.update([skyhawk({ lat: 41.0135, lon: -83.6687, altitudeFt: 813, groundSpeedKt: 55, onGround: true })], T + 0.5 * MIN);
+    d.update([skyhawk({ lat: 41.0135, lon: -83.72, altitudeFt: 1700, groundSpeedKt: 80, verticalRateFpm: 600 })], T + 2 * MIN);
+    assert.equal(d.line('a1b2c3', T + 2 * MIN), 'Seen leaving Findlay · 2 min ago');
+    assert.equal(d.brief('a1b2c3', T + 2 * MIN).how, 'leaving');
+    // The same bounce by a plane known to be from Wood County: still from Wood County.
+    const e = DEP.createDepartures();
+    e.update([skyhawk({ onGround: true })], T - 30 * MIN);
+    e.update([skyhawk({ lat: 41.2, lon: -83.65, altitudeFt: 3000, groundSpeedKt: 100 })], T - 20 * MIN);
+    e.update([skyhawk({ lat: 41.0135, lon: -83.66, altitudeFt: 1000, groundSpeedKt: 70, verticalRateFpm: -400 })], T);
+    assert.match(e.line('a1b2c3', T), /^From Wood County/, 'low over the field it is passing');
+    e.update([skyhawk({ lat: 41.0135, lon: -83.72, altitudeFt: 1700, groundSpeedKt: 80, verticalRateFpm: 600 })], T + 2 * MIN);
+    assert.equal(e.line('a1b2c3', T + 2 * MIN), 'From Wood County · 29 min ago');
+  });
+  test('departures: a landing carried past the runway between reports is not a takeoff', () => {
+    const d = DEP.createDepartures();
+    // Low on final, never stopped, then (dead-reckoned) beyond the field, still descending.
+    d.update([skyhawk({ lat: 41.391, lon: -83.615, altitudeFt: 900, groundSpeedKt: 70, verticalRateFpm: -500 })], T);
+    assert.equal(d.at('a1b2c3')?.code, '1G0');
+    d.update([skyhawk({ lat: 41.391, lon: -83.68, altitudeFt: 700, groundSpeedKt: 70, verticalRateFpm: -500 })], T + MIN);
+    assert.equal(d.line('a1b2c3', T + MIN), null);
+    // Rolling out with "on ground" set, drifted off the list's reach: still not a departure.
+    const e = DEP.createDepartures();
+    e.update([skyhawk({ onGround: true })], T);
+    e.update([skyhawk({ onGround: true, lat: 41.391, lon: -83.70 })], T + MIN);
+    assert.equal(e.line('a1b2c3', T + MIN), null);
+    assert.equal(e.at('a1b2c3')?.code, '1G0');
+  });
+  test('departures: first seen climbing away is "seen leaving", passing by is nothing', () => {
+    const d = DEP.createDepartures();
+    // 3 nm north of Findlay at 1,500 ft above it, climbing, heading north (away).
+    d.update([skyhawk({ lat: 41.0635, lon: -83.6687, altitudeFt: 2300, groundSpeedKt: 90, trackDeg: 0, verticalRateFpm: 600 })], T);
+    assert.equal(d.line('a1b2c3', T), 'Seen leaving Findlay · 2 min ago');
+    for (const [name, over] of [
+      ['level', { verticalRateFpm: 0 }],
+      ['climbing toward the field', { trackDeg: 180 }],
+      ['high', { altitudeFt: 6000 }],
+      ['far', { lat: 41.2, trackDeg: 0 }],
+    ]) {
+      const e = DEP.createDepartures();
+      e.update([skyhawk({ lat: 41.0635, lon: -83.6687, altitudeFt: 2300, groundSpeedKt: 90, trackDeg: 0, verticalRateFpm: 600, ...over })], T);
+      assert.equal(e.line('a1b2c3', T), null, name);
+    }
+    // Not the first sighting: a plane the app has been following doesn't "leave" a field it flies past.
+    const f = DEP.createDepartures();
+    f.update([skyhawk({ lat: 40.8, lon: -83.6687, altitudeFt: 2300, groundSpeedKt: 90, trackDeg: 0 })], T);
+    f.update([skyhawk({ lat: 41.0635, lon: -83.6687, altitudeFt: 2300, groundSpeedKt: 90, trackDeg: 0, verticalRateFpm: 600 })], T + 10 * MIN);
+    assert.equal(f.line('a1b2c3', T + 10 * MIN), null);
+  });
+  test('departures: GPS altitude, stale positions, and what the Mac found', () => {
+    const d = DEP.createDepartures({ geoidSeparationM: -34 });
+    // GPS altitude is above the ellipsoid, 112 ft below sea-level height here: 1,100 ft GPS over a
+    // 673 ft field is 539 ft above it (at the field), though the barometric reading says 2,000.
+    d.update([skyhawk({ altitudeGeomFt: 1100, altitudeFt: 2000, groundSpeedKt: 70 })], T);
+    assert.equal(d.at('a1b2c3')?.code, '1G0');
+    // A position that old says nothing.
+    const e = DEP.createDepartures();
+    e.update([skyhawk({ onGround: true, positionAgeS: 400 })], T);
+    assert.equal(e.at('a1b2c3'), null);
+    // From the Mac (the start of OpenSky's track): fills a gap...
+    const delaware = { field: { code: 'DLZ', name: 'Delaware Municipal Airport', city: 'Delaware', kind: 'S', lat: 40.2797, lon: -83.1148 }, atMs: T - 40 * MIN, how: 'from', source: 'opensky' };
+    e.set('ffffff', delaware, T);
+    assert.equal(e.line('ffffff', T), 'From Delaware · 40 min ago');
+    e.set('eeeeee', { ...delaware, how: 'near' }, T);
+    assert.equal(e.line('eeeeee', T), 'From near Delaware · 40 min ago');
+    // ...replaces "seen leaving" (the real case: a plane from Delaware first seen climbing out of Marion),
+    // and a later bounce doesn't undo it...
+    const m = DEP.createDepartures();
+    m.update([skyhawk({ lat: 41.0635, lon: -83.6687, altitudeFt: 2300, groundSpeedKt: 90, trackDeg: 0, verticalRateFpm: 600 })], T);
+    assert.match(m.line('a1b2c3', T), /^Seen leaving Findlay/);
+    m.set('a1b2c3', delaware, T);
+    assert.equal(m.line('a1b2c3', T), 'From Delaware · 40 min ago');
+    m.update([skyhawk({ lat: 41.391, lon: -83.62, altitudeFt: 900, groundSpeedKt: 70, verticalRateFpm: -400 })], T + 10 * MIN);
+    m.update([skyhawk({ lat: 41.392, lon: -83.67, altitudeFt: 1500, groundSpeedKt: 80, verticalRateFpm: 600 })], T + 11 * MIN);
+    assert.equal(m.line('a1b2c3', T + 11 * MIN), 'From Delaware · 51 min ago');
+    // ...but never replaces a stop the app saw itself.
+    const g = DEP.createDepartures();
+    g.update([skyhawk({ onGround: true })], T - 30 * MIN);
+    g.update([skyhawk({ lat: 41.3, lon: -83.7, altitudeFt: 3000, groundSpeedKt: 100 })], T - 20 * MIN);
+    g.set('a1b2c3', delaware, T);
+    assert.match(g.line('a1b2c3', T), /^From Wood County/);
+  });
+
 } catch (e) {
   console.error(e);
   failed++;

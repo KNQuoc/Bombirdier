@@ -227,6 +227,30 @@ export function createServer(getUrl: () => string, getToken: () => string = () =
         return null;
       }
     },
+    /**
+     * Where a plane with no route left from, as the Mac reads it off OpenSky's track of the flight.
+     * null = not known (or the Mac didn't answer).
+     */
+    async origin(hex: string, helicopter: boolean): Promise<{ code: string; name: string; city: string; kind: string; lat: number; lon: number; exact: boolean; atS: number } | null> {
+      try {
+        const r = await request(`${base()}/api/flights/origin?hex=${encodeURIComponent(hex)}&helicopter=${helicopter}`, { headers: headers() }, HEALTH_TIMEOUT_MS + 3000);
+        if (!r.ok) return null;
+        const o = ((await r.json()) as Record<string, unknown>).origin as Record<string, unknown> | null;
+        if (!o || typeof o.name !== 'string' || typeof o.lat !== 'number' || typeof o.lon !== 'number' || typeof o.at !== 'number') return null;
+        return {
+          code: String(o.code ?? '').slice(0, 10),
+          name: o.name.slice(0, 80),
+          city: String(o.city ?? '').slice(0, 60),
+          kind: String(o.kind ?? 'S').slice(0, 1),
+          lat: o.lat,
+          lon: o.lon,
+          exact: o.exact === true,
+          atS: o.at,
+        };
+      } catch {
+        return null;
+      }
+    },
     /** The wind at the weather station nearest a point, or null if the Mac couldn't say. */
     async wind(lat: number, lon: number): Promise<{ dirDeg: number | null; speedKt: number; gustKt: number | null; station: string; distanceNm: number | null } | null> {
       try {

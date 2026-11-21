@@ -239,10 +239,15 @@ _DEPARTED = [
     rf"(?:when|what time) did {_IT} (?:take off|depart|leave|departed|left)\b.*",
     rf"how long (?:has {_IT} been|its been|is it been) (?:flying|in the air|airborne|up)\b.*",
 ]
+# Where it came from. With a route on file this is the route question; without one (most small
+# planes) it is answered from where the plane was seen leaving.
+_ORIGIN = [
+    rf"(?:where|which airport|what airport) (?:did|is|s|was) {_IT} (?:come|coming|came|flying|fly|flown|depart|departing|departed|take off|taking off|leave|leaving|left|start|starting|started) (?:from|out of)\b.*",
+    rf"where(?: is| s|s) {_IT} from",
+    rf"where did {_IT} (?:take off|depart|leave|start)",
+]
 _ROUTE = [
     rf"where(?: is| s|s) {_IT} (?:going|headed|heading|flying to|landing|off to|bound)\b.*",
-    rf"where (?:did|is|s) {_IT} (?:come|coming|flying|fly|depart|departing|take off) from\b.*",
-    rf"where(?: is| s|s) {_IT} from",
     rf"(?:whats|what is) (?:its|the|their) (?:route|destination|origin)",
 ]
 _WEATHER_DEST = r"(?:whats|what is|hows|how is|what about) the weather (?:like )?(?:at|in) (?:its|the|their) destination|(?:whats|what is|hows|how is) the weather (?:like )?(?:where (?:its|it is|theyre|they are) (?:going|landing|headed|heading)|there)"
@@ -268,6 +273,8 @@ def wants(text: str) -> str | None:
         return "distance"
     if _matches(text, _DEPARTED):
         return "departed"
+    if _matches(text, _ORIGIN):
+        return "origin"
     if _matches(text, _ROUTE):
         return "route"
     return None
@@ -283,22 +290,51 @@ def took_off_when(took: dict) -> str:
     return f"{'yesterday at ' if yesterday else ''}{spoken_clock(at)}, {spoken_duration(took['agoMin'])} ago"
 
 
+def left_where(left: dict) -> str:
+    """" from Findlay Airport", " near Wood County Airport in Bowling Green", " near Boston", or "".
+
+    `airport` is the airfield the track starts at (airports.py) and `exact` whether the plane was
+    seen on it rather than climbing away nearby; `near` is the older stand-in, a weather station.
+    """
+    if left.get("airport"):
+        return f" {'from' if left.get('exact') else 'near'} {left['airport']}"
+    return f" near {left['near']}" if left.get("near") else ""
+
+
 def answer(kind: str, plane: dict | None, prog: dict | None, wx: dict, took: dict | None = None) -> str:
     """The spoken answer to one of the flight questions.
 
-    `took` is what OpenSky's track says about the takeoff (opensky.takeoff(), plus `near`: a place
-    name for where it left from when that isn't the route's origin). Without it, times are estimates.
+    `took` is what is known about the takeoff: OpenSky's track (opensky.takeoff()) or the phone's
+    own sighting, plus the place it left from when that isn't the route's origin (see left_where;
+    `approx` = the time is worked out, not seen). Without it, times are estimates.
     """
     if not plane:
         return "I don't see a plane in the middle of your view. Point at one, or open one from the list."
     name = spoken_name(plane)
     left = took if took and took.get("fromGround") else None
-    near = f" near {left['near']}" if left and left.get("near") else ""
+    near = left_where(left) if left else ""
+    at = "around" if left and left.get("approx") else "at"
+    if kind == "origin":
+        if prog:
+            kind = "route"  # the route says it
+        elif not left:
+            return f"I don't know where {name} came from: there's no route on file for it, and nobody I can ask saw it take off."
+        else:
+            kind = "departed"
+    if not prog and left and left.get("leaving"):
+        # Seen climbing away from a field it hadn't stopped on: where it was, not where it started.
+        saw = f"I saw it climbing away from {left['airport']} around {took_off_when(left)}, but not where it started from"
+        if kind == "departed":
+            return f"{saw}. I have no route for it, so I don't know where it's headed either."
+        if kind == "route":
+            return f"There's no route on file for {name}, so I don't know where it's going. {saw}."
     if not prog:
         if left and kind == "departed":
-            return f"It took off{near} at {took_off_when(left)}. {SEEN_NOT_SCHEDULED} I have no route for it, so I don't know where it's headed."
+            # "Not the airline's gate time" only where there is an airline to have one.
+            caveat = f" {SEEN_NOT_SCHEDULED}" if plane.get("airline") else ""
+            return f"It took off{near} {at} {took_off_when(left)}.{caveat} I have no route for it, so I don't know where it's headed."
         if left and kind == "route":
-            return f"There's no route on file for {name}, so I don't know where it's going. It took off{near} at {took_off_when(left)}."
+            return f"There's no route on file for {name}, so I don't know where it's going. It took off{near} {at} {took_off_when(left)}."
         return f"I don't know where {name} is going: there's no route on file for it, so I can't work that out."
     origin, destination = place(prog["origin"]), place(prog["destination"])
     if kind == "route":
@@ -319,7 +355,7 @@ def answer(kind: str, plane: dict | None, prog: dict | None, wx: dict, took: dic
             return f"It took off from {origin} at {took_off_when(left)}. {SEEN_NOT_SCHEDULED}"
         if left:
             # The plane left from somewhere the route doesn't mention: believe the plane.
-            return f"It took off{near} at {took_off_when(left)}. The route I have says {origin}, which doesn't match where it left from, so that route may be out of date."
+            return f"It took off{near} {at} {took_off_when(left)}. The route I have says {origin}, which doesn't match where it left from, so that route may be out of date."
         if prog["sinceDepartureMin"] is None:
             return f"I don't have its departure time from {origin}."
         return f"Roughly {spoken_duration(prog['sinceDepartureMin'])} ago from {origin}, judging by the {miles(prog['flownNm'])} it has covered. I don't have the airline's actual departure time."
@@ -340,9 +376,11 @@ def context_lines(plane: dict | None, prog: dict | None, wx: dict, took: dict | 
     """Flight progress and weather as lines for Aivana's context."""
     left = took if took and took.get("fromGround") else None
     actual = []
-    if left:
-        where = f"from {place(prog['origin'])}" if prog and left.get("atOrigin") else f"near {left['near']}" if left.get("near") else "from an unknown place"
-        actual = [f"Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): {where} at {took_off_when(left)}."]
+    if left and left.get("leaving"):
+        actual = [f"Seen climbing away from {left['airport']} around {took_off_when(left)} (it may have taken off there or only touched down and gone; where the flight began is not known)."]
+    elif left:
+        where = f"from {place(prog['origin'])}" if prog and left.get("atOrigin") else left_where(left).strip() or "from an unknown place"
+        actual = [f"Actual takeoff (seen by tracking receivers; a real time, not the airline's schedule): {where} {'around' if left.get('approx') else 'at'} {took_off_when(left)}."]
     if not plane or not prog:
         return actual
     origin, destination = prog["origin"], prog["destination"]
