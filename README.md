@@ -249,6 +249,5 @@ No network and no model needed.
 
 Built by da squad.
 
-- **Plan:** [docs/bombirdier-plan.md](docs/bombirdier-plan.md)
 - **Progress:** [PROGRESS.md](PROGRESS.md) (plus one GitHub milestone and tracking issue per phase)
 - **How the codebase works:** [CLAUDE.md](CLAUDE.md), [app/android/README.md](app/android/README.md) and [mac-server/README.md](mac-server/README.md)
