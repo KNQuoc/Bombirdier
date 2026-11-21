@@ -355,10 +355,15 @@ const assistant = createAssistant({
     if (mode === 'info') renderOverlay();
   },
 });
-/** Tip your head to one side and hold: start a question. Only while the Mac server is reachable. */
-const tilt = createTiltTrigger(() => {
+/** Start a question, or say on the HUD why that isn't possible. */
+function talk(how: string) {
+  console.info(`[voice] ${how}; Mac server ${serverHealth ? 'reachable' : 'NOT reachable'}`);
   if (serverHealth) void assistant.listen();
-});
+  else assistant.unavailable(`Voice needs the Mac server, and I can't reach it at ${macServer.url()}. Is mac-server/run.sh running and the phone plugged in?`);
+}
+
+/** Tip your head to one side and hold: start a question. */
+const tilt = createTiltTrigger((rollDeg) => talk(`head tilt (${Math.round(rollDeg)}°)`));
 
 async function checkServer() {
   if (!view || suspended) return;
@@ -367,7 +372,8 @@ async function checkServer() {
 
 /** The voice line of the info display: is the server there, and how the last question went. */
 function voiceInfo(): string {
-  if (!serverHealth) return `voice: Mac server not reachable at ${macServer.url()}`;
+  const tilted = DEV ? '' : ` · ${tilt.describe(orientation?.get()?.rollDeg ?? null)}`;
+  if (!serverHealth) return `voice: Mac server not reachable at ${macServer.url()}${tilted}`;
   const voice = serverHealth.tts === 'ready' ? 'Mac voice' : `phone voice (Mac voice ${serverHealth.tts})`;
   const parts = [`voice: server ok, whisper ${serverHealth.whisper}, ${voice}${serverHealth.aivana ? '' : ', no Aivana key'}`];
   if (serverHealth.tokenNeeded && !appSettings.serverToken) parts.push('needs a server token (settings)');
@@ -375,7 +381,7 @@ function voiceInfo(): string {
   if (lastExchange && t) {
     parts.push(`last: ${lastExchange.source} ${t.totalMs ?? '?'} ms (whisper ${t.whisperMs ?? 0}${t.llmMs ? `, llm ${t.llmMs}` : ''}${t.ttsMs ? `, voice ${t.ttsMs}` : ''})`);
   }
-  return parts.join(' · ');
+  return parts.join(' · ') + tilted;
 }
 
 /** Per-frame: compute the visible FOV and draw the HUD canvas in both eyes. */
@@ -420,8 +426,7 @@ function frame() {
     planes,
     status: feedState?.status ?? '',
     timeMs: performance.now(),
-    // Subtitles only while there's something to show: the hint, a question in progress, an answer.
-    voice: serverHealth || assistant.busy() ? assistant.hud() : null,
+    voice: assistant.hud(),
     pitchDeg: currentPitch(),
     viewerAltM: viewerAltM(),
     // At the field the radar zooms in on the pattern (unless a range was asked for); the list's
@@ -826,6 +831,17 @@ calibrateBtn.addEventListener('click', () => {
 settingsBtn.addEventListener('click', openSettings);
 listBtn.addEventListener('click', toggleList);
 stereoEl.addEventListener('click', onViewTap);
+// Two fingers down at once = talk: the phone-in-hand way to ask a question (in the headset it's the head tilt).
+stereoEl.addEventListener(
+  'touchstart',
+  (e) => {
+    if (e.touches.length !== 2) return;
+    clearTimeout(longPressTimer);
+    if (assistant.busy()) assistant.finish();
+    else talk('two-finger tap');
+  },
+  { passive: true },
+);
 // Long-press anywhere = settings (reachable without finding the ⚙ corner, e.g. through the headset).
 stereoEl.addEventListener('pointerdown', (e) => {
   const listView = list.view();
@@ -885,8 +901,13 @@ setInterval(() => {
 }, 500);
 // Is the Mac server there? (Head-tilt only listens when it is.)
 setInterval(checkServer, 8000);
-// Desktop testing without a microphone: bombirdier.ask('show me the helicopters') in the console.
-if (DEV) (window as any).bombirdier = { ask: (text: string) => assistant.askText(text), listen: () => assistant.listen(), context: voiceContext };
+// For testing from a console (desktop, or chrome://inspect on the phone): bombirdier.ask('show me the helicopters').
+(window as any).bombirdier = {
+  ask: (text: string) => assistant.askText(text),
+  listen: () => assistant.listen(),
+  context: voiceContext,
+  debug: () => ({ server: serverHealth, voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
+};
 
 // Straight into the view on launch; settings only show if it can't start (e.g. camera denied).
 initSettings().then(start);

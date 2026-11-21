@@ -2,8 +2,15 @@
 // stop talking. Audio is sent as base64 in JSON (multipart/Blob is unreliable through Capacitor's
 // native HTTP bridge).
 
-/** Loudness (RMS, 0..1) above which the mic is hearing speech rather than room noise. */
-const SPEECH_LEVEL = 0.025;
+/**
+ * Speech is whatever is clearly louder than the background. Measured on a Pixel 7 (2026-11-21): with
+ * Android's noise suppression on, a quiet room reads about 0.0001 RMS and speech from across a desk
+ * 0.005-0.03, so a fixed threshold tuned on a laptop (0.025) heard nothing. The threshold follows the
+ * background level instead, within these bounds.
+ */
+const SPEECH_OVER_NOISE = 4;
+const MIN_SPEECH_LEVEL = 0.003;
+const MAX_SPEECH_LEVEL = 0.05;
 /** After speech, this much quiet ends the question. */
 const SILENCE_MS = 1300;
 /** If nobody has said anything by now, give up. */
@@ -11,10 +18,18 @@ const NO_SPEECH_MS = 5000;
 const MAX_MS = 10_000;
 const LEVEL_EVERY_MS = 80;
 
-export type Recording = { audio: string; mime: string };
+export type Recording = {
+  audio: string;
+  mime: string;
+  /** Did the loudness meter notice speech? Sent either way: Whisper is the better judge of silence. */
+  heardSpeech: boolean;
+  /** Loudest level seen (RMS, 0..1), for the log. */
+  peak: number;
+  ms: number;
+};
 
 export type ActiveRecording = {
-  /** The recording, or null if nothing was said. Rejects if the mic can't be opened. */
+  /** The recording, or null if it was cancelled or came out empty. Rejects if the mic can't be opened. */
   done: Promise<Recording | null>;
   /** Stop now and send what there is. */
   stop: () => void;
@@ -89,6 +104,9 @@ export function record(): ActiveRecording {
     const startedAt = performance.now();
     let heardSpeech = false;
     let quietSince = startedAt;
+    let peak = 0;
+    /** Background level: drops to any quieter reading at once, creeps up slowly otherwise. */
+    let noise = Infinity;
 
     const stopped = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
     const meter = setInterval(() => {
@@ -97,7 +115,10 @@ export function record(): ActiveRecording {
       for (const s of samples) sum += s * s;
       const level = Math.sqrt(sum / samples.length);
       const now = performance.now();
-      if (level >= SPEECH_LEVEL) {
+      peak = Math.max(peak, level);
+      noise = Math.min(level, noise === Infinity ? level : noise * 1.005 + 0.00001);
+      const speechLevel = Math.min(MAX_SPEECH_LEVEL, Math.max(MIN_SPEECH_LEVEL, noise * SPEECH_OVER_NOISE));
+      if (level >= speechLevel) {
         heardSpeech = true;
         quietSince = now;
       }
@@ -111,9 +132,9 @@ export function record(): ActiveRecording {
     clearInterval(meter);
     source.disconnect();
     stream.getTracks().forEach((t) => t.stop());
-    if (cancelled || !heardSpeech || !chunks.length) return null;
+    if (cancelled || !chunks.length) return null;
     const blob = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
-    return { audio: toBase64(await blob.arrayBuffer()), mime: blob.type };
+    return { audio: toBase64(await blob.arrayBuffer()), mime: blob.type, heardSpeech, peak, ms: Math.round(performance.now() - startedAt) };
   })();
 
   return {

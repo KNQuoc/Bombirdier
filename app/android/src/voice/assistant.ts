@@ -42,8 +42,11 @@ export function createAssistant(deps: AssistantDeps) {
   let turn = 0;
 
   const busy = () => hud.state !== 'idle';
+  /** One line per step, readable with `adb logcat -s Capacitor/Console`: the headset has no other debug output. */
+  const log = (message: string) => console.info(`[voice] ${message}`);
 
   function fail(message: string) {
+    log(`failed: ${message}`);
     hud.state = 'idle';
     hud.error = message;
     clearTimeout(clearTimer);
@@ -62,12 +65,14 @@ export function createAssistant(deps: AssistantDeps) {
       return;
     }
     if (mine !== turn) return;
+    log(`reply from ${reply.source} in ${reply.timings?.totalMs ?? '?'} ms: heard "${reply.transcript}", ${reply.actions.length} action(s)${reply.error ? `, error ${reply.error}` : ''}`);
     deps.onExchange?.(reply);
     hud.transcript = reply.transcript || null;
     // The phone words the reply itself where it knows more than the server did (counts, what opened).
     const say = applyActions(reply.actions ?? [], deps.actions) ?? reply.answer;
     hud.answer = say || null;
     hud.state = 'speaking';
+    log(`saying "${say}" with ${say === reply.answer && reply.speech ? "the Mac's voice (sent with the reply)" : deps.macVoice() ? "the Mac's voice (fetched)" : "the phone's voice"}`);
     await speak(say, {
       // The server already voiced its own answer; if the phone reworded it, ask for that text instead.
       clip: say === reply.answer ? reply.speech : undefined,
@@ -86,9 +91,15 @@ export function createAssistant(deps: AssistantDeps) {
     hud: () => hud,
     busy,
 
+    /** Something on the HUD when voice can't even start (e.g. the Mac server isn't reachable). */
+    unavailable(message: string) {
+      if (!busy()) fail(message);
+    },
+
     /** Start listening for one question. Ignored while a question is already in progress. */
     async listen() {
-      if (busy()) return;
+      if (busy()) return log('listen ignored: busy');
+      log('listening');
       const mine = ++turn;
       clearTimeout(clearTimer);
       stopSpeaking();
@@ -102,9 +113,11 @@ export function createAssistant(deps: AssistantDeps) {
         if (mine !== turn) return;
         beep('stop');
         if (!result) return fail("I didn't hear anything.");
-        await exchange(result, mine);
-      } catch {
+        log(`recorded ${result.ms} ms, ${Math.round((result.audio.length * 3) / 4 / 1024)} kB ${result.mime}, peak level ${result.peak.toFixed(4)}, speech ${result.heardSpeech ? 'heard' : 'not noticed'}`);
+        await exchange({ audio: result.audio, mime: result.mime }, mine);
+      } catch (e) {
         recording = null;
+        log(`microphone error: ${e instanceof Error ? `${e.name}: ${e.message}` : e}`);
         if (mine === turn) fail('The microphone is not available. Allow it in Android Settings → Apps → Bombirdier → Permissions.');
       }
     },
