@@ -72,7 +72,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Server access checks after a security review: Host validation, body size cap, token for non-local requests; server text escaped on the phone
 - [x] Tests: `mac-server/test_server.py` (55 checks); 12 real audio questions transcribed and answered correctly on the Mac (test voices, not a person)
 - [ ] On the phone: head-tilt trigger, microphone recording, speech playback (none of this has run on a device yet)
-- [ ] Kien: pick a voice (samples: af_heart, am_michael, bm_george)
+- [x] Voice chosen by Kien: `af_heart` (US female), which is the default
 - [ ] Done: "what's that plane?" answered in < ~3 s (0.8 s on the Mac with test audio; phone not measured); "show me all the jets above thirty thousand feet" opens the filtered list (works, about 3–6 s through Aivana)
 
 ## Phase 4: radio-call linking (LiveATC)
