@@ -17,6 +17,10 @@ export type VoiceAction = {
   n?: number;
   nm?: number;
   runway?: string;
+  /** connect_feed: the radio feed's id. */
+  feed?: string;
+  /** radio_audio: on | off | up | down. transcript: show | hide. */
+  state?: string;
 };
 
 /** A spoken answer as audio, base64-encoded. */
@@ -190,6 +194,20 @@ export function createServer(getUrl: () => string, getToken: () => string = () =
           events: Array.isArray(d.events) ? (d.events.map(radioEvent).filter(Boolean) as RadioEvent[]) : [],
           feeds: Array.isArray(d.feeds) ? (d.feeds.map(feedInfo).filter(Boolean) as FeedInfo[]) : [],
         };
+      } catch {
+        return null;
+      }
+    },
+    /**
+     * The address to play a feed's live audio from, or null if the Mac won't give one. An audio
+     * player can't send the token header, so the Mac hands out a one-time ticket that goes in the address.
+     */
+    async audioUrl(feedId: string): Promise<string | null> {
+      try {
+        const r = await request(`${base()}/api/feeds/${encodeURIComponent(feedId)}/listen`, { method: 'POST', headers: headers() }, HEALTH_TIMEOUT_MS);
+        if (!r.ok) return null;
+        const ticket = ((await r.json()) as Record<string, unknown>).ticket;
+        return typeof ticket === 'string' && /^[\w-]{8,80}$/.test(ticket) ? `${base()}/api/feeds/${encodeURIComponent(feedId)}/audio?ticket=${ticket}` : null;
       } catch {
         return null;
       }

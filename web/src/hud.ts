@@ -39,6 +39,23 @@ export type VoiceHud = {
 export type HudResult = {
   focus: Plane | null;
   inView: Plane[];
+  /** The station in the middle of the view, when it (and not a plane) has the focus. */
+  station?: HudStation | null;
+};
+
+/**
+ * Something on the ground that gets an icon on the compass bar at its bearing and a card when you
+ * look at it: an air traffic controller's site, say. It has no place in the sky, so it counts as
+ * sitting on the horizon.
+ */
+export type HudStation = {
+  id: string;
+  bearingDeg: number;
+  /** Status dot beside the icon, and the card's accent. */
+  color: string;
+  /** Card lines, title first. */
+  card: string[];
+  tag?: string | null;
 };
 
 const NO_PLANES: HudResult = { focus: null, inView: [] };
@@ -73,6 +90,10 @@ export type HudState = {
   showCard?: boolean;
   /** A nearby airport to draw: runways and traffic pattern on the radar, the pattern in the sky. */
   airport?: AirportOverlay | null;
+  /** Ground stations on the compass bar (see HudStation). */
+  stations?: HudStation[];
+  /** Leave the radar out this frame (something else is using the bottom of the view). */
+  hideRadar?: boolean;
 };
 
 /** A point as seen from where you stand. */
@@ -155,7 +176,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, w: number, h: number, s: 
   // The radar steps aside while a voice question/answer is on screen (they share the bottom of the view).
   const voiceShowing = !!(s.voice?.answer || s.voice?.transcript);
   const radarPlanes = s.radarPlanes ?? s.planes;
-  if (s.headingDeg != null && (radarPlanes.length || s.airport) && !voiceShowing) {
+  if (s.headingDeg != null && (radarPlanes.length || s.airport) && !voiceShowing && !s.hideRadar) {
     drawRadar(ctx, w, h, s, radarPlanes, s.headingDeg, result.focus?.id ?? null);
   }
   if (s.voice) drawVoice(ctx, w, h, s.voice, s.timeMs);
@@ -367,6 +388,88 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
   const heading = s.headingDeg;
   drawCompass(ctx, w, barY, x0, x1, heading, s.halfTan);
 
+  // Stations sit on the horizon: looking at one means facing it with the view about level.
+  const stations = (s.stations ?? []).map((st) => {
+    const off = signedDiffDeg(st.bearingDeg, heading);
+    return { st, off, aim: Math.hypot(off, s.pitchDeg ?? 0) };
+  });
+  const nearestStation = stations.reduce<(typeof stations)[number] | null>((a, b) => (!a || b.aim < a.aim ? b : a), null);
+  const stationInFocus = nearestStation && nearestStation.aim <= FOCUS_HALF_DEG ? nearestStation : null;
+
+  const result = drawAircraftLayer(ctx, w, h, s, heading, barY, x0, x1, stationInFocus?.aim ?? null);
+  if (!stations.length) return result;
+
+  const focused = result.focus ? null : stationInFocus;
+  for (const m of stations) {
+    const x = Math.abs(m.off) <= halfFovDeg(s.halfTan) ? projectX(m.off, s.halfTan, w) : null;
+    if (x != null && x >= x0 && x <= x1) drawStation(ctx, x, barY, m.st, m === focused);
+  }
+  if (!focused) {
+    stationAnim = null;
+    return result;
+  }
+  if (stationAnim?.id !== focused.st.id) stationAnim = { id: focused.st.id, since: s.timeMs };
+  if (s.showCard !== false) {
+    const t = Math.min(1, (s.timeMs - stationAnim.since) / CARD_ANIM_MS);
+    const x = projectX(focused.off, s.halfTan, w) ?? w / 2;
+    const radar = { x: w * RADAR_X, y: h * RADAR_Y, r: w * RADAR_R + fs(14) };
+    drawCard(ctx, w, x, labelRowY(barY) + fs(10), focused.st.card, t, focused.st.color, focused.st.tag ?? null, radar);
+  }
+  return { ...result, station: focused.st };
+}
+
+let stationAnim: { id: string; since: number } | null = null;
+
+/** A small radio mast on the compass bar, with a status dot. */
+function drawStation(ctx: CanvasRenderingContext2D, x: number, y: number, st: HudStation, focus: boolean) {
+  const color = focus ? COLORS.focus : COLORS.text;
+  const size = focus ? 9 : 7;
+  ctx.save();
+  ctx.shadowColor = COLORS.shadow;
+  ctx.shadowBlur = 3;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = focus ? 2 : 1.5;
+  ctx.lineCap = 'round';
+  // Mast: a narrow A-frame with a crossbar.
+  ctx.beginPath();
+  ctx.moveTo(x - size * 0.55, y + size);
+  ctx.lineTo(x, y - size * 0.5);
+  ctx.lineTo(x + size * 0.55, y + size);
+  ctx.moveTo(x - size * 0.3, y + size * 0.35);
+  ctx.lineTo(x + size * 0.3, y + size * 0.35);
+  ctx.stroke();
+  // Radio waves from the top.
+  for (const r of [size * 0.55, size * 0.95]) {
+    ctx.beginPath();
+    ctx.arc(x, y - size * 0.5, r, -Math.PI * 0.85, -Math.PI * 0.15);
+    ctx.stroke();
+  }
+  // Status dot at the foot.
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.beginPath();
+  ctx.arc(x + size * 0.95, y + size * 0.9, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = st.color;
+  ctx.beginPath();
+  ctx.arc(x + size * 0.95, y + size * 0.9, 2.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Aircraft on the compass bar and in the sky, and the focused one's card. `stationAim`: how far off center a station in the focus cone is, if one is. */
+function drawAircraftLayer(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  s: HudState,
+  heading: number,
+  barY: number,
+  x0: number,
+  x1: number,
+  stationAim: number | null,
+): HudResult {
   const half = halfFovDeg(s.halfTan);
   const withOffset = s.planes.map((p) => ({ p, off: signedDiffDeg(p.bearingDeg, heading) }));
   const onBar = withOffset
@@ -376,7 +479,8 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
 
   if (s.planes.length === 0) {
     focusAnim = null;
-    label(ctx, w / 2, labelRowY(barY) + fs(18), `No planes · ${s.status}`, fs(11), COLORS.text, 'center');
+    // A station's card goes in the same spot: it takes precedence over this note.
+    if (stationAim == null) label(ctx, w / 2, labelRowY(barY) + fs(18), `No planes · ${s.status}`, fs(11), COLORS.text, 'center');
     return NO_PLANES;
   }
 
@@ -392,7 +496,8 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
   // otherwise (or for a plane with no altitude).
   const aim = (x: { p: Plane; off: number }) => sky.get(x.p.id)?.offCenterDeg ?? Math.abs(x.off);
   const best = withOffset.reduce<(typeof withOffset)[number] | null>((a, b) => (!a || aim(b) < aim(a) ? b : a), null);
-  const focus = best && aim(best) <= FOCUS_HALF_DEG ? best : null;
+  // A station nearer the center than any plane takes the focus instead.
+  const focus = best && aim(best) <= FOCUS_HALF_DEG && (stationAim == null || aim(best) <= stationAim) ? best : null;
 
   // A plane the caller wants you to find: the compass points at it whenever it's off the bar.
   const guide = s.guideId ? withOffset.find((x) => x.p.id === s.guideId) : undefined;

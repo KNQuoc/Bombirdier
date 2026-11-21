@@ -1,4 +1,4 @@
-// Carries out what the assistant asked for (list, radar, runway) and, where only the phone knows
+// Carries out what the assistant asked for (list, radar, runway, radio) and, where only the phone knows
 // the answer, words the reply: the Mac never sees all 250 nm of traffic, so "how many helicopters?"
 // is counted here.
 
@@ -19,7 +19,19 @@ export type ActionDeps = {
   coverageNm: () => number;
   /** How many planes the app knows about at all. Zero means there's no data, not an empty sky. */
   knownPlanes: () => number;
+  /** The radio you can listen to (Phase 5). */
+  radio: {
+    /** Starts listening to a feed. Returns what to say if that isn't possible, else null. */
+    connect: (feedId: string) => string | null;
+    disconnect: () => void;
+    /** on | off | up | down. False when not connected. */
+    audio: (state: string) => boolean;
+    /** show | hide. False when not connected. */
+    transcript: (state: string) => boolean;
+  };
 };
+
+const NOT_CONNECTED = "You're not connected to a frequency.";
 
 const KIND_NOUNS: Record<string, [string, string]> = {
   jets: ['jet', 'jets'],
@@ -144,6 +156,20 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
         break;
       case 'set_runway':
         if (a.runway && !deps.setRunway(a.runway)) say = `There's no runway ${a.runway} here.`;
+        break;
+      case 'connect_feed': {
+        const problem = a.feed ? deps.radio.connect(a.feed) : "I don't know which frequency you mean.";
+        if (problem) say = problem;
+        break;
+      }
+      case 'disconnect_feed':
+        deps.radio.disconnect();
+        break;
+      case 'radio_audio':
+        if (!a.state || !deps.radio.audio(a.state)) say = NOT_CONNECTED;
+        break;
+      case 'transcript':
+        if (!a.state || !deps.radio.transcript(a.state)) say = NOT_CONNECTED;
         break;
       default:
         // An action this build doesn't know (a newer server): skip it.

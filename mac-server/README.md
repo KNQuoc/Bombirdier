@@ -83,6 +83,10 @@ Every captured feed is transcribed on this Mac, on the same thread as the voice 
 
 Nothing is recorded: each call is a temporary file deleted as soon as it is transcribed, and nothing is re-shared.
 
+### Listening on the phone
+
+Looking at a controller's icon in the headset and saying "Can I access?" makes the phone play that feed: `GET /api/feeds/{id}/audio` is the audio this Mac is already receiving, re-encoded as an MP3 stream for the phone's player. It goes to your own phone only (over USB, or on Wi-Fi with the server token: the phone first gets a one-time ticket from `POST /api/feeds/{id}/listen`), and nothing is stored. Try it from the Mac: `curl -m 8 -o /tmp/feed.mp3 http://127.0.0.1:8787/api/feeds/tol-app/audio`.
+
 ### Other kinds of feed
 
 `"kind": "stream"` with a `streamUrl` is for a plain web audio stream this Mac may connect to itself (your own receiver, for instance): one connection, only while the app is asking for calls, let go two minutes after it stops asking, a reconnect at most every 30 seconds.
@@ -125,7 +129,8 @@ Aivana took 3–6 seconds per call when measured (2026-11-20, `effort: low`), wh
 | `capture.html` | The page at `/capture` that sends a Chrome tab's sound to the server |
 | `splitter.py` | Cuts a continuous audio stream into individual calls |
 | `radio_parse.py` | Callsigns and position reports out of a transcribed call |
-| `radio.py` | The feed and radio endpoints |
+| `radio.py` | The feed and radio endpoints, including the live audio stream the phone plays |
+| `radiotalk.py` | Radio voice commands answered without Aivana: "Can I access?", mute, transcript, "what did they just say?" |
 | `test_server.py` | `python3 test_server.py`: rules, speech, flight info and action checks. No network, no model |
 | `test_radio.py` | `python3 test_radio.py`: the radio parser and the call splitter |
 

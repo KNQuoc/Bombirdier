@@ -75,3 +75,86 @@ export function drawRadio(ctx: CanvasRenderingContext2D, w: number, h: number, c
   }
   ctx.restore();
 }
+
+/** What the HUD shows while you're connected to a feed. */
+export type ConnectedView = {
+  name: string;
+  /** Is the feed coming in on the Mac right now? */
+  live: boolean;
+  muted: boolean;
+  /** The transcript lines to show, oldest first; null = transcript hidden. */
+  lines: HeardCall[] | null;
+};
+
+const PILL_Y = 0.145;
+/** The transcript takes the bottom of the view, where the radar is otherwise. */
+const TRANSCRIPT_BOTTOM = 0.8;
+const TRANSCRIPT_X = 0.16;
+const TRANSCRIPT_W = 0.68;
+
+/**
+ * "📻 Toledo Approach · LIVE 🔇" near the top, and the last few calls scrolling at the bottom: the
+ * newest lowest and brightest, each starting with its callsign (tinted when it's a plane the app knows).
+ */
+export function drawConnected(ctx: CanvasRenderingContext2D, w: number, h: number, view: ConnectedView, showTranscript: boolean) {
+  ctx.save();
+  ctx.textBaseline = 'middle';
+
+  // The pill.
+  const size = fs(10.5);
+  const state = view.live ? 'LIVE' : 'NO SIGNAL';
+  const text = `📻 ${view.name} · ${state}${view.muted ? '  🔇' : ''}${view.lines ? '  💬' : ''}`;
+  ctx.font = `700 ${size}px ${FONT}`;
+  const tw = ctx.measureText(text).width;
+  const pw = tw + 16;
+  const ph = size + 9;
+  const px = (w - pw) / 2;
+  const py = h * PILL_Y - ph / 2;
+  ctx.fillStyle = COLORS.panel;
+  roundRect(ctx, px, py, pw, ph, ph / 2);
+  ctx.fill();
+  ctx.strokeStyle = view.live ? 'rgba(76, 217, 100, 0.9)' : 'rgba(255, 59, 48, 0.9)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COLORS.text;
+  ctx.fillText(text, w / 2, h * PILL_Y);
+
+  if (view.lines && showTranscript) {
+    const lineSize = fs(10.5);
+    const lineH = lineSize + 7;
+    const x = w * TRANSCRIPT_X;
+    const maxW = w * TRANSCRIPT_W;
+    const lines = view.lines;
+    const top = h * TRANSCRIPT_BOTTOM - lineH * Math.max(1, lines.length);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+    roundRect(ctx, x - 7, top - 4, maxW + 14, lineH * Math.max(1, lines.length) + 8, 7);
+    ctx.fill();
+    ctx.textAlign = 'left';
+    ctx.shadowColor = COLORS.shadow;
+    ctx.shadowBlur = 2;
+    if (!lines.length) {
+      ctx.font = `500 ${lineSize}px ${FONT}`;
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillText(view.live ? 'Listening… nothing said yet' : 'Nothing coming in from the Mac', x, top + lineH / 2);
+    }
+    lines.forEach((call, i) => {
+      const y = top + lineH * i + lineH / 2;
+      const newest = i === lines.length - 1;
+      const { plane, event } = call;
+      const name = plane ? rowName(plane) : (event.callsignTokens[0] ?? '');
+      ctx.globalAlpha = newest ? 1 : 0.45 + (0.35 * i) / Math.max(1, lines.length - 1);
+      ctx.font = `700 ${lineSize}px ${FONT}`;
+      const nameW = name ? ctx.measureText(name).width + 7 : 0;
+      if (name) {
+        ctx.fillStyle = plane ? (plane.accent ?? (planeColor(plane) !== COLORS.hud ? planeColor(plane) : COLORS.focus)) : 'rgba(255,255,255,0.6)';
+        ctx.fillText(name, x, y);
+      }
+      ctx.font = `500 ${lineSize}px ${FONT}`;
+      ctx.fillStyle = COLORS.text;
+      // With no callsign found, the whole call is shown as it was heard.
+      ctx.fillText(fit(ctx, name ? callBody(event.text) : event.text.replace(/\.$/, ''), maxW - nameW), x + nameW, y);
+    });
+  }
+  ctx.restore();
+}

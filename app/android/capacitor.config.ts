@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
   android: {
     // Native Gradle project lives in app/android/native/ (not app/android/android/).
     path: 'native',
+    // The Mac server is plain http. Over USB it is reached as localhost, which is fine; over Wi-Fi
+    // its LAN address inside this https page would otherwise be blocked for the live radio audio.
+    allowMixedContent: true,
   },
   plugins: {
     // Patches fetch() to go through native HTTP: api.adsb.lol sends no CORS headers, and this

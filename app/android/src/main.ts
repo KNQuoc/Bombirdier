@@ -43,7 +43,14 @@ import { createList } from './list/list';
 import { createPatternTracker, legCode, legLabel } from './pattern/classify';
 import { createAirportView } from './pattern/overlay';
 import { createRunwayDetector } from './pattern/runway';
-import { drawRadio } from './radio/draw';
+import { FACILITIES, facilityForFeed } from './atc/facilities';
+import type { Facility } from './atc/facilities';
+import { createStations } from './atc/stations';
+import type { StationInfo } from './atc/stations';
+import { radioLine, whoControls } from './atc/whoControls';
+import { drawConnected, drawRadio } from './radio/draw';
+import type { ConnectedView } from './radio/draw';
+import { createListener } from './radio/listen';
 import { createRadio } from './radio/radio';
 import { createAssistant } from './voice/assistant';
 import { requestMicrophone } from './voice/recorder';
@@ -327,6 +334,8 @@ function brief(p: Plane) {
     medical: p.medical,
     tag: p.tag,
     leg: legNote(p.id),
+    // Who it's probably talking to, and whether it has been heard there.
+    radio: appSettings.radioCalls ? (planeRadio(p)?.brief ?? null) : null,
   };
 }
 
@@ -365,7 +374,20 @@ function voiceContext() {
           opened: listView.opened ? (listView.opened.plane.callsign ?? listView.opened.plane.registration) : null,
         }
       : { open: false },
+    // The controller in the middle of the view ("Can I access?" means this one), and the radio's state.
+    station: lastHud.station ? stationBrief(lastHud.station.id) : null,
+    radio: {
+      connected: listener.connected(),
+      audio: listener.state()?.audio ?? false,
+      transcript: listener.state()?.transcript ?? false,
+      stations: FACILITIES.map((f) => ({ id: f.id, name: f.name, feedId: f.feedId })),
+    },
   };
+}
+
+function stationBrief(id: string) {
+  const f = FACILITIES.find((x) => x.id === id);
+  return f ? { id: f.id, name: f.name, freqs: f.freqs, feedId: f.feedId } : null;
 }
 
 const macServer = createServer(
@@ -387,6 +409,12 @@ const assistant = createAssistant({
     },
     coverageNm: () => WIDE_RADIUS_NM,
     knownPlanes: () => traffic?.all().length ?? 0,
+    radio: {
+      connect: (feedId) => connectFeed(feedId),
+      disconnect: () => listener.disconnect(),
+      audio: (state) => listener.audio(state),
+      transcript: (state) => listener.transcript(state),
+    },
   },
   macVoice: () => serverHealth?.tts === 'ready',
   onExchange: (r) => {
@@ -403,6 +431,45 @@ const radio = createRadio({
   planes: () => traffic?.all() ?? [],
   serverUp: () => !!serverHealth,
 });
+
+/** Listening in (Phase 5): one feed's live audio on the phone and its transcript on the HUD. */
+const listener = createListener({ server: macServer });
+const stations = createStations();
+
+/** Starts listening to a feed. Returns what to say if it can't, else null. */
+function connectFeed(feedId: string): string | null {
+  const feed = radio.feed(feedId);
+  if (!feed) return "I can't find that frequency on the Mac.";
+  const name = facilityForFeed(feedId)?.name ?? feed.name;
+  if (feed.status !== 'online') return `${name} isn't playing on the Mac right now.`;
+  listener.connect(feedId);
+  console.info(`[radio] connected to ${name}`);
+  return null;
+}
+
+/** Who a plane is talking to: where it was actually heard, else a guess from where it is. */
+function planeRadio(p: Plane) {
+  const guess = whoControls(p);
+  const heardAt = radio.heardOn(p.id);
+  const heardFacility = heardAt ? facilityForFeed(heardAt.feedId) : null;
+  const heard = heardAt && heardFacility ? { facility: heardFacility, agoS: heardAt.agoS } : null;
+  const facility = heard?.facility ?? guess?.facility;
+  if (!facility) return null;
+  const freq = guess?.facility.id === facility.id ? guess.freq : facility.freqs.length === 1 ? facility.freqs[0] : null;
+  return {
+    line: radioLine(guess, heard),
+    brief: { facility: facility.id, name: facility.name, freq, feedId: facility.feedId, heardAgoS: heard?.agoS ?? null },
+  };
+}
+
+function stationInfo(f: Facility): StationInfo {
+  const last = f.feedId ? radio.transcript(f.feedId, 1)[0] : undefined;
+  return {
+    status: radio.feed(f.feedId)?.status ?? null,
+    lastCall: last ? { text: last.event.text, agoS: Math.round((Date.now() - last.at) / 1000) } : null,
+    connected: !!f.feedId && listener.connected() === f.feedId,
+  };
+}
 
 /** Start a question, or say on the HUD why that isn't possible. */
 function talk(how: string) {
@@ -468,11 +535,13 @@ function frame() {
     const leg = pattern.legOf(p.id)?.leg;
     // What the plane itself said on the radio, next to what the app worked out: a mismatch is worth seeing.
     const said = radio.reportedLeg(p.id);
-    if (!leg && !said) return p;
+    // Who it's probably talking to (or was heard talking to), on a line of its own.
+    const talkingTo = appSettings.radioCalls ? (planeRadio(p)?.line ?? null) : null;
+    if (!leg && !said && !talkingTo) return p;
     const code = leg && legCode(leg);
     if (code) legCodes[p.id] = code;
-    const note = [leg && legLabel(leg, runwayEnd(AIRPORT, activeRunway)), said && `📻 said ${said}`].filter(Boolean).join(' · ');
-    return { ...p, note };
+    const inPattern = [leg && legLabel(leg, runwayEnd(AIRPORT, activeRunway)), said && `📻 said ${said}`].filter(Boolean).join(' · ');
+    return { ...p, note: [inPattern, talkingTo].filter(Boolean).join('\n') };
   });
   const viewer = gps?.get() ?? null;
   const field = viewer ? airportView(viewer, activeRunway) : null;
@@ -511,6 +580,26 @@ function frame() {
       if (opened.inAr) hud.guideId = opened.plane.id;
     }
   }
+  // Controllers on the compass bar, at their bearing, with a dot for whether they can be listened to.
+  if (appSettings.radioCalls && viewer) hud.stations = stations.build(viewer, stationInfo);
+  // Connected to a frequency: a pill at the top, and its transcript where the radar is otherwise.
+  const listening = listener.state();
+  let connectedView: ConnectedView | null = null;
+  if (listening) {
+    const feed = radio.feed(listening.feedId);
+    connectedView = {
+      name: facilityForFeed(listening.feedId)?.name ?? feed?.name ?? listening.feedId,
+      live: feed?.status === 'online',
+      muted: !listening.audio,
+      lines: listening.transcript ? radio.transcript(listening.feedId, 4) : null,
+    };
+  }
+  const transcriptShowing = !!connectedView?.lines && !showPanel;
+  if (transcriptShowing) hud.hideRadar = true;
+  const voiceShowing = !!(hud.voice?.answer || hud.voice?.transcript);
+  // The radio goes silent while the assistant listens (the microphone would hear it) and low while it thinks and talks.
+  const voiceState = hud.voice?.state ?? 'idle';
+  listener.duck(voiceState === 'listening' ? 0 : voiceState === 'idle' ? 1 : 0.2);
   // The list's left edge runs through the middle of the view: no crosshair while it's open.
   const radioCall = radio.latest();
   stereoEl.classList.toggle('list-open', showPanel);
@@ -520,7 +609,9 @@ function frame() {
     lastHud = drawHud(eye.ctx, width, height, hud);
     lastFocusId = lastHud.focus?.id ?? null;
     if (listView && showPanel) drawList(eye.ctx, width, height, listView, hud.headingDeg, hud.timeMs);
-    if (radioCall) drawRadio(eye.ctx, width, height, radioCall, traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM);
+    if (connectedView) drawConnected(eye.ctx, width, height, connectedView, transcriptShowing && !voiceShowing);
+    // The one-line subtitle is for when no transcript is on screen (it would say the same thing twice).
+    if (radioCall && !transcriptShowing) drawRadio(eye.ctx, width, height, radioCall, traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM);
   }
   if (!DEV) tilt.update(orientation?.get()?.rollDeg ?? null, hud.timeMs);
 }
@@ -571,12 +662,14 @@ function startTracking() {
   gps = watch;
   traffic = startTraffic({ arRadiusKm: settings.radiusKm, wideMode: appSettings.wideTraffic, getPosition: watch.get });
   if (appSettings.radioCalls) radio.start();
+  listener.resume();
 }
 
 function stopTracking() {
   orientation?.stop();
   traffic?.stop();
   radio.stop();
+  listener.pause();
   gps?.stop();
   orientation = null;
   traffic = null;
@@ -942,6 +1035,13 @@ window.addEventListener('keydown', (e) => {
     if (assistant.busy()) assistant.finish();
     else void assistant.listen();
   } else if (e.key === 'l' || e.key === 'L') toggleList();
+  // C = listen to the controller in the middle of the view (again = stop). M = mute, T = transcript.
+  else if (e.key === 'c' || e.key === 'C') {
+    const feedId = lastHud.station && stationBrief(lastHud.station.id)?.feedId;
+    if (listener.connected()) listener.disconnect();
+    else if (feedId) showToast(connectFeed(feedId) ?? 'Connected');
+  } else if (e.key === 'm' || e.key === 'M') listener.audio(listener.state()?.audio ? 'off' : 'on');
+  else if (e.key === 't' || e.key === 'T') listener.transcript(listener.state()?.transcript ? 'hide' : 'show');
   else if (e.key === 'r' || e.key === 'R') {
     radarRangeKm = DEV_RADAR_RANGES_KM[(DEV_RADAR_RANGES_KM.indexOf(radarRangeKm) + 1) % DEV_RADAR_RANGES_KM.length];
   } else if (!list.isOpen()) return;
@@ -974,7 +1074,7 @@ setInterval(checkServer, 8000);
   ask: (text: string) => assistant.askText(text),
   listen: () => assistant.listen(),
   context: voiceContext,
-  debug: () => ({ server: serverHealth, radio: radio.describe(), heard: radio.latest()?.event.text ?? null, highlighted: radio.highlightIds(), voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
+  debug: () => ({ server: serverHealth, radio: radio.describe(), listening: listener.state(), station: lastHud.station?.id ?? null, focus: lastHud.focus ? { name: lastHud.focus.callsign ?? lastHud.focus.registration, note: lastHud.focus.note ?? null } : null, heard: radio.latest()?.event.text ?? null, highlighted: radio.highlightIds(), voice: assistant.hud(), rollDeg: orientation?.get()?.rollDeg ?? null, tilt: tilt.describe(orientation?.get()?.rollDeg ?? null) }),
 };
 
 // Straight into the view on launch; settings only show if it can't start (e.g. camera denied).

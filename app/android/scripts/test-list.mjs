@@ -502,6 +502,83 @@ try {
     assert.equal(movedM(300, 5).alt, 800);
   });
 
+  // ---- Phase 5: who is a plane talking to, and the controllers on the compass bar ----
+  const W = await vite.ssrLoadModule('/src/atc/whoControls.ts');
+  const ATC = await vite.ssrLoadModule('/src/atc/facilities.ts');
+  const ST = await vite.ssrLoadModule('/src/atc/stations.ts');
+  test('who controls: Wood County, Toledo by sector, Detroit, Cleveland Center, nobody', () => {
+    const who = (over) => {
+      const g = W.whoControls(plane(over));
+      return g ? `${g.facility.id} ${g.freq ?? '-'}` : null;
+    };
+    // In the pattern at 1G0, and on its ramp.
+    assert.equal(who({ lat: 41.4, lon: -83.63, altitudeFt: 1700 }), '1g0-ctaf 122.975');
+    assert.equal(who({ lat: 41.391, lon: -83.63, altitudeFt: null, onGround: true }), '1g0-ctaf 122.975');
+    // Over the field but high: Toledo Approach, and Bowling Green is southeast of Toledo (126.1).
+    assert.equal(who({ lat: 41.4, lon: -83.63, altitudeFt: 4500 }), 'tol-app 126.1');
+    // West of Toledo: the other sector.
+    assert.equal(who({ lat: 41.6, lon: -84.3, altitudeFt: 5000 }), 'tol-app 134.35');
+    // Near Detroit Metro, low: Detroit, sector not guessed.
+    assert.equal(who({ lat: 42.2, lon: -83.3, altitudeFt: 6000 }), 'dtw-app -');
+    // Between Toledo and Detroit: whichever airport is nearer.
+    assert.equal(who({ lat: 41.75, lon: -83.7, altitudeFt: 7000 }), 'tol-app 126.1');
+    assert.equal(who({ lat: 42.0, lon: -83.45, altitudeFt: 7000 }), 'dtw-app -');
+    // An airliner at cruise over northwest Ohio: Cleveland Center's Bluffton sector.
+    assert.equal(who({ lat: 41.1, lon: -83.7, altitudeFt: 36000 }), 'zob 119.325');
+    // Cleveland Center elsewhere (over Lake Erie; or mid-level near home): no frequency claimed.
+    assert.equal(who({ lat: 41.9, lon: -81.5, altitudeFt: 34000 }), 'zob -');
+    assert.equal(who({ lat: 41.4, lon: -83.63, altitudeFt: 15000 }), 'zob -');
+    // Chicago, 200 miles west: not ours.
+    assert.equal(who({ lat: 41.98, lon: -87.9, altitudeFt: 3000 }), null);
+    // Unknown altitude in the air near home: not assumed to be in the pattern.
+    assert.equal(who({ lat: 41.4, lon: -83.63, altitudeFt: null, altitudeGeomFt: null }), 'zob -');
+  });
+
+  test('the radio line on a plane card', () => {
+    const toledo = { facility: ATC.TOLEDO_APPROACH, freq: '126.1' };
+    assert.equal(W.radioLine(toledo, null), '📻 Likely Toledo Approach 126.1');
+    assert.equal(W.radioLine(toledo, { facility: ATC.TOLEDO_APPROACH, agoS: 40 }), '📻 Toledo Approach 126.1 · ✅ heard 40s ago');
+    // Heard somewhere other than the guess: what was heard wins, with that feed's one frequency.
+    assert.equal(W.radioLine(toledo, { facility: ATC.CLEVELAND_CENTER, agoS: 200 }), '📻 Cleveland Center 119.325 · ✅ heard 3 min ago');
+    // Heard on Toledo with no guess: two frequencies, so none is claimed.
+    assert.equal(W.radioLine(null, { facility: ATC.TOLEDO_APPROACH, agoS: 5 }), '📻 Toledo Approach · ✅ heard 5s ago');
+    assert.equal(W.radioLine({ facility: ATC.DETROIT_APPROACH, freq: null }, null), '📻 Likely Detroit Approach');
+    assert.equal(W.radioLine({ facility: { ...ATC.DETROIT_APPROACH, feedId: null }, freq: null }, null), '📻 Likely Detroit Approach · no live feed');
+    assert.equal(W.radioLine(null, null), null);
+    assert.equal(ATC.facilityForFeed('zob-47').id, 'zob');
+    assert.equal(ATC.facilityForFeed('nope'), null);
+  });
+
+  test('controllers on the compass bar', () => {
+    const stations = ST.createStations();
+    const info = (f) => ({
+      status: { 'tol-app': 'online', 'dtw-app': 'offline', zob: 'connecting' }[f.id] ?? 'idle',
+      lastCall: f.id === 'tol-app' ? { text: 'Delta 1830, descend and maintain 4,000.', agoS: 40 } : null,
+      connected: false,
+    });
+    // Standing 1 km south of the Wood County reference point.
+    const built = stations.build({ lat: 41.382, lon: -83.6301389 }, info);
+    const by = Object.fromEntries(built.map((s) => [s.id, s]));
+    close(by['1g0-ctaf'].bearingDeg, 0, 1, 'the field is due north');
+    close(by['tol-app'].bearingDeg, 327, 2, 'Toledo Express is northwest');
+    close(by['dtw-app'].bearingDeg, 14, 2, 'Detroit Metro is north-northeast');
+    close(by.zob.bearingDeg, 94, 2, 'Oberlin is east');
+    close(by['cmh-app'].bearingDeg, 158, 2, 'Columbus is south-southeast');
+    assert.equal(by['tol-app'].color, ST.FEED_COLORS.online);
+    assert.equal(by['dtw-app'].color, ST.FEED_COLORS.offline);
+    assert.equal(by.zob.color, ST.FEED_COLORS.connecting);
+    assert.equal(by['1g0-ctaf'].color, ST.FEED_COLORS.none); // never captured: nothing to hear
+    assert.deepEqual(by['tol-app'].card, ['Toledo Approach', '126.1 · 134.35 · 27 km', 'Live', '“Delta 1830, descend and maintain 4,000.” 40s ago', 'Say “Can I access?”']);
+    assert.deepEqual(by['1g0-ctaf'].card, ['Wood County CTAF', '122.975 · 1.0 km', 'Not playing on the Mac']);
+    assert.equal(by['1g0-ctaf'].tag, 'COMMON FREQUENCY');
+    // Standing on the field: its bearing stays where it last made sense instead of spinning.
+    const onTop = stations.build({ lat: 41.3911, lon: -83.6301389 }, info).find((s) => s.id === '1g0-ctaf');
+    close(onTop.bearingDeg, 0, 1, 'kept');
+    // Listening to it.
+    const listening = stations.build({ lat: 41.382, lon: -83.63 }, (f) => ({ ...info(f), connected: f.id === 'tol-app' })).find((s) => s.id === 'tol-app');
+    assert.deepEqual(listening.card.slice(2), ['Live · you are listening', '“Delta 1830, descend and maintain 4,000.” 40s ago', 'Say “Disconnect” to stop']);
+  });
+
   // ---- Phase 4: which plane is a radio call about? ----
   const M = await vite.ssrLoadModule('/src/radio/match.ts');
   test('radio calls are matched to planes', () => {

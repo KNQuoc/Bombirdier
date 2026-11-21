@@ -27,6 +27,10 @@ const SUBTITLE_MS = 9000;
 /** A leg said on the radio is shown on the plane's card for this long. */
 const REPORTED_LEG_MS = 60_000;
 const CALLS_KEPT = 8;
+/** Per feed, for the transcript shown while you're listening to it. */
+const TRANSCRIPT_KEPT = 8;
+/** "Heard on Toledo Approach" stays true this long after the call. */
+const HEARD_FOR_MS = 10 * 60_000;
 
 export type HeardCall = {
   event: RadioEvent;
@@ -51,6 +55,10 @@ export function createRadio(deps: {
   let since = 0;
   let firstPoll = true;
   const calls: HeardCall[] = [];
+  /** Everything said on each feed, matched to a plane or not. */
+  const transcripts = new Map<string, HeardCall[]>();
+  /** Plane id -> the feed it was last named on. */
+  const heardOn = new Map<string, { feedId: string; at: number }>();
 
   const usable = () => feeds.filter((f) => f.configured);
   /** The home frequency: the first feed that is set up. */
@@ -81,9 +89,15 @@ export function createRadio(deps: {
               // On connecting, the Mac hands over its whole backlog: only what was just said is shown.
               if (firstPoll && Date.now() / 1000 - event.ts > FRESH_S) continue;
               const plane = matchCall(event.callsignTokens, deps.planes());
+              const call = { event, plane, at: Date.now() };
+              const log = transcripts.get(event.feedId) ?? [];
+              log.push(call);
+              while (log.length > TRANSCRIPT_KEPT) log.shift();
+              transcripts.set(event.feedId, log);
+              if (plane) heardOn.set(plane.id, { feedId: event.feedId, at: call.at });
               // Away from the home frequency, a call about nobody we can see is just noise in the view.
               if (!plane && event.feedId !== homeId) continue;
-              calls.push({ event, plane, at: Date.now() });
+              calls.push(call);
               console.info(`[radio] ${event.feedId}: "${event.text}" -> ${plane ? (plane.callsign ?? plane.registration ?? plane.id) : `no match for [${event.callsignTokens.join(', ')}]`}`);
             }
             firstPoll = false;
@@ -137,6 +151,14 @@ export function createRadio(deps: {
       return `radio: ${names}${calls.length ? `, last call ${Math.round((Date.now() - calls.at(-1)!.at) / 1000)} s ago` : ''}`;
     },
     feeds: () => feeds,
+    feed: (feedId: string | null | undefined) => feeds.find((f) => f.id === feedId) ?? null,
+    /** The last `n` calls on one feed, oldest first: every call, whoever it was about. */
+    transcript: (feedId: string, n: number): HeardCall[] => (transcripts.get(feedId) ?? []).slice(-n),
+    /** Which feed a plane was last named on, if recently: evidence of who it's talking to. */
+    heardOn(planeId: string, now = Date.now()): { feedId: string; agoS: number } | null {
+      const h = heardOn.get(planeId);
+      return h && now - h.at <= HEARD_FOR_MS ? { feedId: h.feedId, agoS: Math.round((now - h.at) / 1000) } : null;
+    },
   };
 }
 

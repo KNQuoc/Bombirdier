@@ -111,5 +111,6 @@ export function cardLines(p: Plane): string[] {
   ]
     .filter(Boolean)
     .join(' · ');
-  return p.note ? [title, type, stats, p.note] : [title, type, stats];
+  // A note can be more than one line.
+  return p.note ? [title, type, stats, ...p.note.split('\n')] : [title, type, stats];
 }

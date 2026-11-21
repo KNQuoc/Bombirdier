@@ -11,7 +11,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 | 2. Traffic-pattern overlay at 1G0 | 🟡 | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
 | 3. AI voice assistant (Mac server + Aivana) | 🟡 | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
 | 4. Radio-call linking (LiveATC) | 🟡 | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
-| 5. Controllers on headband + "Can I access?" | ⬜ | [#6](https://github.com/KNQuoc/Bombirdier/issues/6) |
+| 5. Controllers on headband + "Can I access?" | 🟡 | [#6](https://github.com/KNQuoc/Bombirdier/issues/6) |
 | 6. Stretch goals | ⬜ | [#7](https://github.com/KNQuoc/Bombirdier/issues/7) |
 
 ---
@@ -96,20 +96,22 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] Phone (`src/radio/`): polling, matching (exact + tail suffix, near + wide traffic), pulsing highlight for 8 s + subtitle; where the plane is if it's outside the AR view; a leg said on the radio shown next to the classifier's on the card
 - [x] Setting: Radio calls On / Off
 - [x] Tests: 48 checks on the parser and splitter, a plane-matching test, and the whole pipeline run on test recordings (clean and radio-quality) including one that named real planes in the air: both were matched, one of them 116 km away
-- [ ] Not yet heard on real ATC audio: the test recordings are a computer voice. Real controller audio is faster, clipped and noisier, and Whisper will do worse on it
+- [x] Heard on real ATC audio (2026-11-21, five captured LiveATC tabs): callsigns come out right, other words are rougher
+- [ ] Tune for real audio: `RADIO_PROMPT` vocabulary (altimeter, RNP, runway numbers with left/right), and long calls where two transmissions run together
 - [ ] Done: Toledo Approach calls appear within a few seconds and mostly match the right plane (needs a real capture)
 
 ## Phase 5: controllers on headband + "Can I access?"
 
-- [ ] `src/atc/facilities.ts` (Toledo Approach, Wood County CTAF)
-- [ ] `src/atc/whoControls.ts` ("likely" guess + "heard" confirmation)
-- [ ] Controller icons with status dots; feed status refresh + checks
-- [ ] Focus on controllers; controller card; plane card radio line
-- [ ] Assistant tools: who_controls, feed_status, connect/disconnect, recent_transcript, heard, radio_audio, transcript
-- [ ] `GET /api/feeds/{id}/audio` MP3 relay; `<audio>` on phone; TTS ducking
-- [ ] Connected view: LIVE pill, 🔇/💬 icons, scrolling transcript
-- [ ] Separate audio/transcript switches, remembered per feed
-- [ ] Done: "Can I access?" plays Toledo Approach within ~5 s; mute/hide/disconnect all work
+- [x] `src/atc/facilities.ts`: Wood County CTAF, Toledo Approach, Detroit Approach, Cleveland Center, Columbus Approach (each has a feed now, so all five are in)
+- [x] `src/atc/whoControls.ts`: "likely" guess from position and altitude; a call actually heard on a feed replaces the guess ("✅ heard 40s ago")
+- [x] Controller icons on the compass bar with status dots (green live, yellow connecting, red stopped, grey nothing to hear). Status comes with every events poll, twice a second, so the separate per-icon `check` call the plan describes isn't needed
+- [x] Focus on controllers (they count as sitting on the horizon); controller card; plane card radio line
+- [x] Voice: "Can I access?" for a controller, a plane or by name; disconnect; who is it talking to; what did they just say; who's on frequency; what's live. All answered by rules on the Mac in about 0.1 s (`mac-server/radiotalk.py`); anything else about the radio goes to Aivana with the recent calls as context
+- [x] `GET /api/feeds/{id}/audio` MP3 stream (one-time ticket for Wi-Fi); audio element on the phone; the radio goes silent while the assistant listens and low while it talks
+- [x] Connected view: LIVE pill, 🔇/💬 icons, last four calls scrolling where the radar is
+- [x] Separate audio/transcript switches, remembered per feed for the session
+- [ ] Done: "Can I access?" plays Toledo Approach within ~5 s; mute/hide/disconnect all work. Works in the desktop preview on the live captured feeds; **not yet tried on the phone or in the headset**
+- [ ] Sector guesses for Detroit and Cleveland Center are from sector names; check against what is actually heard
 
 ## Phase 6: stretch goals
 
@@ -125,6 +127,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 5 · Controllers on the compass bar with live/stopped dots, cards, and "Can I access?": connects to a feed, plays its audio on the phone and scrolls its transcript; mute, volume and transcript are separate voice switches. Plane cards say who the plane is likely talking to. Checked in the desktop preview against the live captured feeds; phone and headset still to do.
+- 2026-11-21 · phase 4 · **First real ATC audio.** Five LiveATC tabs captured; real calls transcribed with correct callsigns (Southwest 3454 on Columbus Approach, a Skyhawk on Cleveland Center). Content words are rougher ("altimeter" heard as "kilometer", "RNP" as "RMP"). Three faults found and fixed: call ids restarted with the server (new calls hidden from the capture page), a prompt label leaked into transcripts ("Callsigns, 945…"), noise transcribed as "!".
 - 2026-11-21 · phase 4 · Radio audio now comes in through a browser tab: `mac-server/capture.html` (at `/capture`) shares the sound of a Chrome tab playing LiveATC's own player, and the server cuts and transcribes it as before. No stream addresses anywhere. Five feeds listed; the phone follows all of them. Checked with a test recording pushed through the new endpoint and with a stand-in audio stream on the page; not yet with a real LiveATC tab.
 - 2026-11-21 · phase 4 · Radio-call linking built: feed workers, call splitter, radio parser, endpoints, phone matching/highlight/subtitle. Works end to end on test recordings; waiting on the LiveATC stream address to try real audio.
 - 2026-11-21 · phase 2 · Runway in use detected from traffic (Auto is the default), entry rule fixed, stale positions no longer extrapolated. The recorded N442BG landing is a regression test: 25 app tests, 108 server checks.
