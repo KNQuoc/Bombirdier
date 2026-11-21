@@ -1,14 +1,17 @@
 # Bombirdier (Android app, formerly SkyLens)
 
-Standalone APK (Capacitor). The web code is bundled into the app, and only adsb.lol / adsb.im are contacted. No voice, no casting, no demo data: it always shows live planes around the phone's GPS position.
+Standalone APK (Capacitor). The web code is bundled into the app, and only adsb.lol is contacted (`api.adsb.lol` for traffic, `vrs-standing-data.adsb.lol` for routes). No voice yet, no casting, no demo data: it always shows live planes around the phone's GPS position.
 
 ## Using the app
 
 - **Launch:** opens straight into the headset view (no splash or loading screen; Android 12+ only flashes the app icon briefly, which apps can't turn off). Android asks for location and camera the first time.
 - **Settings:** ⚙ (top-right corner, outside both eye images) or long-press anywhere in the view.
-  - Search radius (default 20 km), camera, lens spacing.
+  - AR radius (default 50 km, max 100): how far out planes get compass icons and sky brackets.
+  - Wide traffic (On / Wi-Fi only / Off): the 250 nm data behind the list. Off or no Wi-Fi = the list shows the AR planes only.
+  - Camera, lens spacing.
   - **Done** or back returns to the view.
   - If the view can't start (e.g. camera permission denied), settings open with the reason.
+- **Plane list:** ☰ (next to ⚙) shows every plane within 250 nm on the right of each eye, 8 per page, nearest first. Tap a row to open it (route, where it is; a plane within the AR radius gets a pulsing bracket and a compass arrow), tap the opened plane to go back, ▲▼ or swipe to page. Dimmed rows are below the horizon. While the list is open the radar shows the list's planes. Filters and sorting come by voice in Phase 3; until then dev mode has keys for them.
 - **Compass calibration:** Settings → **🧭 Calibrate compass**. Draw a figure 8 with the phone while twisting it.
   - **Ring (coverage):** fills as the phone is turned through different orientations (14 field directions, 10 needed).
   - **Consistency (the quality measure):** a calibrated compass reads the same field strength whichever way the phone points. Each direction keeps a running average of the strength seen there; consistency is ± half the max–min spread, as a % of the median. **Good ≤ ±5%**, Fair ≤ ±10%, Poor above. *Calibrated* = 10 directions covered and Good consistency over at least 8 of them.
@@ -18,7 +21,7 @@ Standalone APK (Capacitor). The web code is bundled into the app, and only adsb.
 - **Magnetic declination:** true north is corrected with the local declination from Android's World Magnetic Model (`GeomagneticField`, via `CompassPlugin.fieldModel`), computed on the first GPS fix and after moving 20 km, and saved for the next launch. `web/src/orientation.ts` still assumes Atlanta (−5.3°); `src/compass.ts` adds the difference. The info line shows it (`decl -4.6°`).
 - **Fine-tuning in the headset:** double-tap the middle to unlock. Then middle tap = next setting (zoom → tilt → spacing → shift → size → fov → info), left/right = adjust.
 - **Back in the view:** exits the app.
-- **Live data:** adsb.lol rate-limits per IP. The app polls every 5–30 s, adapting to 429s and slow answers, and moves planes along their track in between. The info line shows the data age and poll interval.
+- **Live data:** adsb.lol rate-limits per IP. The AR feed polls every 5–30 s, adapting to 429s and slow answers, and moves planes along their track in between. The 250 nm feed polls about once a minute and waits whenever the AR feed is throttled. The info line shows both: data age, poll interval, and the size of the last 250 nm download.
 
 ## Build
 
@@ -61,7 +64,8 @@ adb install -r native/app/build/outputs/apk/release/app-release.apk
 
 | Script | What |
 |---|---|
-| `npm run dev` | Desktop browser at http://localhost:5174/?dev=1 (← → turn, ↑ ↓ look up/down, Shift = 10°; camera optional). Live mode works through the dev proxy. No native features |
+| `npm run dev` | Desktop browser at http://localhost:5174/?dev=1 (← → turn, ↑ ↓ look up/down, Shift = 10°; `L` list, `PgUp`/`PgDn` page, `F` filter presets, `1`–`8` open a row, `Esc` back, `R` radar range; camera optional). Add `&at=41.391,-83.6301` to stand at a fixed position without GPS. Live data works through the dev proxy. No native features |
+| `npm test` | Unit tests for the list's logic (filters, sorting, jet/prop guess, plane lookup, route plausibility). No network |
 | `npm run sync` | Build the web bundle and copy it into `native/` (needed after every web change) |
 | `npm run check` | Compare the in-app flight engine with flight-service's Python on flight-service's frozen snapshot (`flight-service/data`; the app itself has no demo data). Add `-- --live` to also test live adsb.lol data + route lookups. Needs `flight-service/.venv` |
 | `npm run tables` | Regenerate `src/flights/tables.ts` (airlines, type names, ...) after changing them in `flight-service/app/normalize.py` |
@@ -81,7 +85,10 @@ Open `native/` in Android Studio for logcat and debugging. Inspect the WebView f
   - `adsb.ts`: adsb.lol + route lookup, with caching, 429 back-off and last-good fallback.
   - `normalize.ts`: raw aircraft → `Plane`.
   - `nearby.ts`: radius filter, sort, and routes.
-  - `feed.ts`: the HUD's `PlaneFeed`.
+  - `feed.ts`: the HUD's `PlaneFeed` (the AR feed).
+- `src/traffic/`: the AR feed plus the 250 nm feed, merged (`traffic.ts`, `wide.ts`).
+- `src/list/`: the plane list (`list.ts` state and actions, `filter.ts`, `kind.ts`, `draw.ts`).
+- `src/app-settings.ts`: Bombirdier-only settings (wide traffic).
   - `tables.ts` is generated.
 - `native/`: Gradle project generated by `npx cap add android`, committed.
   - Hand-edited files:

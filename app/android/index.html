@@ -16,8 +16,16 @@
            Radius comes first so the keyboard doesn't cover it. -->
       <div class="fields">
         <label>
-          Search radius (km)
-          <input id="radius-input" type="number" min="1" max="400" step="1" inputmode="numeric" placeholder="default: 20" />
+          AR radius (km)
+          <input id="radius-input" type="number" min="1" max="100" step="1" inputmode="numeric" placeholder="default: 50" />
+        </label>
+        <label>
+          Wide traffic (250 nm list)
+          <select id="wide-select">
+            <option value="on">On</option>
+            <option value="wifi">Wi-Fi only</option>
+            <option value="off">Off</option>
+          </select>
         </label>
         <label>
           Camera
@@ -33,8 +41,8 @@
         <button id="done-btn">Done</button>
       </div>
       <p class="hint">
-        Shows live planes within the search radius of your GPS position. Planes in the wrong direction? Calibrate the compass.<br />
-        In view: double-tap middle = fine-tune (then middle = next setting, left/right = adjust) · ⚙ top right or long-press = these settings · back = exit
+        The view shows live planes within the AR radius of your GPS position; the ☰ list covers everything within 250 nm. Planes in the wrong direction? Calibrate the compass.<br />
+        In view: ☰ top right = plane list (tap a row to open it, ▲▼ or swipe to page) · double-tap middle = fine-tune (then middle = next setting, left/right = adjust) · ⚙ or long-press = these settings · back = exit
       </p>
       <p id="settings-status"></p>
     </div>
@@ -70,6 +78,8 @@
       </div>
     </div>
     <div id="stereo" hidden></div>
+    <!-- The only on-screen controls, both outside the eye images. Everything else is voice or taps on the list. -->
+    <button id="list-btn" hidden aria-label="Plane list">☰</button>
     <button id="settings-btn" hidden aria-label="Settings">⚙</button>
     <script type="module" src="./src/main.ts"></script>
   </body>

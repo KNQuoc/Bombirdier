@@ -7,7 +7,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 | Phase | Status | Tracking issue |
 |---|---|---|
 | 0. Sky-placement patch + rename | 🟡 | [#1](https://github.com/KNQuoc/Bombirdier/issues/1) |
-| 1. Live traffic to 250 nm + list view | ⬜ | [#2](https://github.com/KNQuoc/Bombirdier/issues/2) |
+| 1. Live traffic to 250 nm + list view | 🟡 | [#2](https://github.com/KNQuoc/Bombirdier/issues/2) |
 | 2. Traffic-pattern overlay at 1G0 | ⬜ | [#3](https://github.com/KNQuoc/Bombirdier/issues/3) |
 | 3. AI voice assistant (Mac server + Aivana) | ⬜ | [#4](https://github.com/KNQuoc/Bombirdier/issues/4) |
 | 4. Radio-call linking (LiveATC) | ⬜ | [#5](https://github.com/KNQuoc/Bombirdier/issues/5) |
@@ -27,17 +27,19 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ## Phase 1: live traffic to 250 nm + list view
 
-- [ ] `src/traffic/`: near feed (AR radius, 5–30 s) + wide feed (250 nm, ~60 s) with shared backoff, merged by id
-- [ ] Measure 250 nm response size in daytime
-- [ ] Settings: AR radius (km, default 50, max 100); Wide traffic on / Wi-Fi only / off
-- [ ] Route lookups only for near planes + opened/focused planes
-- [ ] `src/list/`: panel on both eyes, header, 8 rows/page, status colors, "below horizon"
-- [ ] `ListFilter` model (kind, airline, typeCode, alt/dist ranges, climbing/descending, onGround, query, sort, page)
-- [ ] Opening a plane: full card, pulse/arrow if near, distance + direction if far
-- [ ] ☰ button next to ⚙
-- [ ] Dev keys: `L`, `PageUp`/`PageDown`, `F`
-- [ ] Radar ranges up to 463 km; radar follows the filtered list; optional `HudState.radarRangeKm`
-- [ ] Done: hundreds of planes in the list in daytime, AR still ≤ 50 km, route service only for near/opened planes
+- [x] `src/traffic/`: near feed (AR radius, 5–30 s) + wide feed (250 nm, ~60 s) that waits while the near feed is throttled, merged by id
+- [ ] Measure 250 nm response size in daytime (at 22:30 local: 457 aircraft, 235 kB of JSON, 44 kB gzipped; the info line shows the live figure)
+- [x] Settings: AR radius (km, default 50, max 100); Wide traffic on / Wi-Fi only / off
+- [x] Route lookups only for near planes + opened planes (verified: 3 requests with 372 planes loaded)
+- [x] Route lookup moved to adsb.lol's per-callsign route files: both batch endpoints the hackathon code used are dead (one answers empty, one 403s)
+- [x] `src/list/`: panel on both eyes, header, 8 rows/page, status colors; planes below the horizon are dimmed (the words "below horizon" are in the opened view: a row is too narrow for them)
+- [x] `ListFilter` model (kind, airline, typeCode, alt/dist ranges, climbing/descending, onGround, query, sort, page) with `sanitizeFilter` for voice input
+- [x] Opening a plane: full card with route, pulsing bracket + compass arrow if near, distance + direction + horizon if far
+- [x] ☰ button next to ⚙; tap a row, ▲▼ or swipe to page
+- [x] Dev keys: `L`, `PageUp`/`PageDown`, `F` (plus `1`–`8` open row, `Esc` back, `R` radar range), and `?dev=1&at=lat,lon` for a fixed position
+- [x] Radar ranges up to 463 km; radar follows the filtered list; optional `HudState.radarRangeKm`
+- [x] `npm test`: 11 unit tests for filters, sorting, jet/prop classification, plane lookup, route plausibility
+- [ ] Done: hundreds of planes in the list in daytime, AR still ≤ 50 km, route service only for near/opened planes (all seen on desktop at night with 372 planes; not yet tried on the phone or in daytime)
 
 ## Phase 2: traffic-pattern overlay at Wood County (1G0)
 
@@ -99,6 +101,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-20 · phase 1 · Two-speed traffic (50 km AR feed + 250 nm wide feed), list view with filters/sorting/paging/open-plane, ☰ button, wider radar, on-demand routes from adsb.lol route files. Verified in desktop dev mode on live traffic; APK builds. Phone and daytime checks open.
 - 2026-11-20 · phase 0 · Android build set up on the Mac (Homebrew `openjdk@21` + `android-commandlinetools`, SDK platform 36); `gradlew` made executable; debug APK builds. Not yet installed on a phone.
 - 2026-11-20 · phase 0 · Sky-placement patch applied as written; app renamed to Bombirdier; type checks and TS/Python parity pass; verified in desktop dev mode on live traffic near 1G0. APK build and outdoor test still open.
 - 2026-11-20 · setup · Repo created from SkyLens (history squashed to one initial commit; local `upstream` remote points at jaiden-lee/ar-plane-identifier). Plan and tracker added.

@@ -52,7 +52,7 @@ body {
 
 .fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 220px));
+  grid-template-columns: repeat(4, minmax(0, 190px));
   gap: 10px 16px;
   justify-content: center;
   width: 100%;
@@ -336,7 +336,8 @@ button.secondary,
 
 /* Settings button: top-right screen corner, outside both eye images (so it isn't seen in the
    headset), inset from the rounded display corner. */
-#settings-btn {
+#settings-btn,
+#list-btn {
   position: fixed;
   top: 16px;
   right: 16px;
@@ -352,6 +353,18 @@ button.secondary,
   line-height: 44px;
 }
 
-#settings-btn:active {
+#list-btn {
+  right: 68px;
+  font-size: 22px;
+}
+
+#settings-btn:active,
+#list-btn:active,
+#list-btn.on {
   background: rgba(79, 195, 247, 0.5);
+}
+
+/* The plane list's left edge runs through the middle of the view. */
+#stereo.list-open .crosshair {
+  display: none;
 }

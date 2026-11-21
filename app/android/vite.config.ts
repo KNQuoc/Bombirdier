@@ -16,7 +16,7 @@ function apiProxy(prefix: string, target: string): Record<string, ProxyOptions> 
       target,
       changeOrigin: true,
       rewrite: (path) => path.slice(prefix.length),
-      headers: { 'User-Agent': 'SkyLens/0.1 (hackathon; dev proxy)' },
+      headers: { 'User-Agent': 'Bombirdier/0.1 (personal project; dev proxy)' },
     },
   };
 }
@@ -34,7 +34,6 @@ export default defineConfig({
     fs: { allow: [REPO_ROOT] },
     proxy: {
       ...apiProxy('/proxy/adsb.lol', 'https://api.adsb.lol'),
-      ...apiProxy('/proxy/adsb.im', 'https://adsb.im'),
     },
   },
 });

@@ -1,4 +1,6 @@
 // Port of flight-service/app/adsb.py: adsb.lol nearby aircraft + best-effort route lookup, both cached.
+// The route lookup has since diverged from the Python (see lookupRoutes): Bombirdier looks routes up
+// one callsign at a time, on demand, from adsb.lol's static route files.
 //
 // On the phone, fetch() is patched by CapacitorHttp and goes through native HTTP: api.adsb.lol sends
 // no CORS headers, and native requests can set the User-Agent it checks. In a desktop browser
@@ -12,22 +14,28 @@ import type { RawAircraft } from './normalize';
 const IS_NATIVE = Boolean((globalThis as any).Capacitor?.isNativePlatform?.());
 const VIA_DEV_PROXY = typeof window !== 'undefined' && !IS_NATIVE;
 const ADSB_LOL = VIA_DEV_PROXY ? '/proxy/adsb.lol' : 'https://api.adsb.lol';
-const ADSB_IM = VIA_DEV_PROXY ? '/proxy/adsb.im' : 'https://adsb.im';
-
-// api.adsb.lol/api/0/routeset currently returns an empty 201; adsb.im serves the same data.
-const ROUTESET_URLS = [`${ADSB_IM}/api/0/routeset`, `${ADSB_LOL}/api/0/routeset`];
+// One small static JSON file per airline callsign (GitHub Pages, CORS open, so no proxy needed).
+// api.adsb.lol/api/0/route/<callsign> redirects here. The batch endpoints the hackathon code used
+// are gone: api.adsb.lol/api/0/routeset answers an empty 201, and adsb.im/api/0/routeset answers
+// 403 without prior approval (checked 2026-11-20).
+const ROUTE_FILES = 'https://vrs-standing-data.adsb.lol/routes';
 const MAX_RADIUS_NM = 250;
 // Generous: when a client polls a lot, adsb.lol's rate limiter answers slowly (seen on a phone:
 // 2.5–7 s per request while the same URL took 0.5 s elsewhere). Giving up early doesn't help,
 // since the server still counts the request, so wait for the answer and let the feed slow down.
 const TIMEOUT_MS = 15_000;
 // adsb.lol 403s generic client User-Agents.
-export const USER_AGENT = 'SkyLens/0.1 (Android; hackathon)';
+export const USER_AGENT = 'Bombirdier/0.1 (Android; personal project)';
 
 const POINT_TTL_MS = 1000; // shorter than the feed's 5 s poll, so every poll gets fresh data
 const ROUTE_TTL_MS = 30 * 60 * 1000;
-/** Callsigns the route service didn't return at all: retry later, but not on every poll. */
+/** Callsigns whose lookup failed (network, server error): retry later, but not on every poll. */
 const ROUTE_MISS_TTL_MS = 5 * 60 * 1000;
+/** Only airline-style callsigns (DAL1830, SKW467F) have route files; N-numbers and the like never do. */
+const ROUTABLE = /^[A-Z]{3}\d[A-Z0-9]*$/;
+/** Route files fetched at once, and the most callsigns one lookupRoutes() call will fetch. */
+const ROUTE_CONCURRENCY = 4;
+const MAX_ROUTE_LOOKUPS = 40;
 
 // Query center is snapped to a ~1 km grid (2 decimals) so GPS jitter doesn't create a new cache key
 // (and a new upstream call) every poll. Callers recompute distance/bearing from the exact position
@@ -61,14 +69,17 @@ class TTLCache<V> {
 /** [origin, destination] airport codes (IATA preferred); [null, null] = looked up, unknown. */
 export type Route = [string | null, string | null];
 
-/** Aircraft from one successful adsb.lol response, and when it was fetched (Date.now() ms). */
-type PointData = { ac: RawAircraft[]; fetchedAt: number };
+/** Aircraft from one successful adsb.lol response, when it was fetched (Date.now() ms), and its size. */
+type PointData = { ac: RawAircraft[]; fetchedAt: number; /** Response body length (JSON characters). */ bytes: number };
 
 const pointCache = new TTLCache<PointData>(POINT_TTL_MS);
 const routeCache = new TTLCache<Route>(ROUTE_TTL_MS);
 let cooldownUntil = 0;
-/** Most recent successful response for any key: shown instead of an empty sky when upstream fails. */
-let lastGood: PointData | null = null;
+/**
+ * Most recent successful response per radius: shown instead of an empty sky when upstream fails.
+ * Per radius so the 250 nm list never falls back to the small AR query, or the other way round.
+ */
+const lastGood = new Map<number, PointData>();
 
 export type PointResult = PointData & {
   /** null = fresh data; otherwise why cached/last-good data was returned. fetchedAt says how old it is. */
@@ -101,7 +112,7 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
   const key = `${qlat},${qlon},${nm}`;
   const cached = pointCache.get(key);
   if (cached) return { ...cached, problem: null };
-  const fallback = pointCache.getStale(key) ?? lastGood ?? { ac: [], fetchedAt: Date.now() };
+  const fallback = pointCache.getStale(key) ?? lastGood.get(nm) ?? { ac: [], fetchedAt: Date.now(), bytes: 0 };
   if (Date.now() < cooldownUntil) return { ...fallback, problem: 'rate-limited' };
   try {
     const r = await request(`${ADSB_LOL}/v2/point/${Number(qlat).toFixed(4)}/${Number(qlon).toFixed(4)}/${nm}`);
@@ -112,10 +123,11 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
       return { ...fallback, problem: 'rate-limited' };
     }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const body = (await r.json()) as { ac?: RawAircraft[] | null };
-    const data: PointData = { ac: body.ac ?? [], fetchedAt: Date.now() };
+    const text = await r.text();
+    const body = JSON.parse(text) as { ac?: RawAircraft[] | null };
+    const data: PointData = { ac: body.ac ?? [], fetchedAt: Date.now(), bytes: text.length };
     pointCache.set(key, data);
-    lastGood = data;
+    lastGood.set(nm, data);
     return { ...data, problem: null };
   } catch (e) {
     console.warn('adsb.lol point fetch failed:', e);
@@ -126,21 +138,36 @@ export async function fetchPoint(lat: number, lon: number, radiusNm: number): Pr
 type Airport = { lat?: number | null; lon?: number | null; iata?: string | null; icao?: string | null };
 type RouteEntry = { callsign?: string; plausible?: unknown; _airports?: Airport[] | null };
 
+/** How far off a leg a plane can be and still plausibly be flying it (vectors, holds, weather). */
+const ROUTE_SLACK_KM = 120;
+const ROUTE_SLACK_FRACTION = 0.25;
+
+/**
+ * Origin/destination from a route entry. Multi-leg routes pick the leg the plane is on. Entries from
+ * the old batch service carry `plausible`; the static files don't, so plausibility is judged here
+ * from the plane's position (the files can be stale: a callsign reused for another city pair).
+ */
 export function parseRoute(entry: RouteEntry, lat?: number, lon?: number): Route {
-  if (!entry.plausible) return [null, null];
+  if (entry.plausible != null && !entry.plausible) return [null, null];
   const airports = (entry._airports ?? []).filter(
     (a): a is Airport & { lat: number; lon: number } => a.lat != null && a.lon != null,
   );
   const codes = airports.map((a) => a.iata || a.icao || null);
   if (airports.length < 2 || !codes.every(Boolean)) return [null, null];
-  if (airports.length === 2 || lat == null || lon == null) return [codes[0], codes[1]];
-  // Multi-leg (e.g. ATL-MIA-ATL): pick the leg with the smallest detour via the plane's position.
-  const detour = (i: number) => {
+  if (lat == null || lon == null) return [codes[0], codes[1]];
+  // Detour of flying leg i via the plane's position, and the leg's own length.
+  const leg = (i: number) => {
     const [a, b] = [airports[i], airports[i + 1]];
-    return haversineKm(a.lat, a.lon, lat, lon) + haversineKm(lat, lon, b.lat, b.lon) - haversineKm(a.lat, a.lon, b.lat, b.lon);
+    const direct = haversineKm(a.lat, a.lon, b.lat, b.lon);
+    return { detour: haversineKm(a.lat, a.lon, lat, lon) + haversineKm(lat, lon, b.lat, b.lon) - direct, direct };
   };
+  // Multi-leg (e.g. ATL-MIA-ATL): pick the leg with the smallest detour.
   let best = 0;
-  for (let i = 1; i < airports.length - 1; i++) if (detour(i) < detour(best)) best = i;
+  for (let i = 1; i < airports.length - 1; i++) if (leg(i).detour < leg(best).detour) best = i;
+  if (entry.plausible == null) {
+    const { detour, direct } = leg(best);
+    if (detour > ROUTE_SLACK_KM + ROUTE_SLACK_FRACTION * direct) return [null, null];
+  }
   return [codes[best], codes[best + 1]];
 }
 
@@ -148,41 +175,39 @@ export function parseRoute(entry: RouteEntry, lat?: number, lon?: number): Route
 export const cachedRoute = (callsign: string): Route | undefined => routeCache.get(callsign);
 
 /**
- * Looks up routes for planes whose callsign isn't cached yet and fills the cache.
- * Best effort, never throws. Unlike flight-service this runs in the background: planes show up
- * right away and origin/destination fill in on the next poll.
+ * Looks up routes for these planes' callsigns that aren't cached yet, and fills the cache. One small
+ * GET per callsign, a few at a time. Best effort, never throws. Callers pass only the planes they
+ * actually need routes for (the AR view's planes, or one plane opened from the list): never the
+ * whole 250 nm set.
  */
 export async function lookupRoutes(planes: Plane[]): Promise<void> {
-  const missing = new Map<string, { callsign: string; lat: number; lng: number }>();
+  const queue: Plane[] = [];
+  const seen = new Set<string>();
   for (const p of planes) {
-    if (p.callsign && !missing.has(p.callsign) && !routeCache.get(p.callsign)) {
-      missing.set(p.callsign, { callsign: p.callsign, lat: p.lat, lng: p.lon });
-    }
+    const cs = p.callsign;
+    if (!cs || seen.has(cs) || !ROUTABLE.test(cs) || routeCache.get(cs)) continue;
+    seen.add(cs);
+    queue.push(p);
+    if (queue.length >= MAX_ROUTE_LOOKUPS) break;
   }
-  if (missing.size === 0) return;
+  const worker = async () => {
+    for (let p = queue.shift(); p; p = queue.shift()) await lookupRoute(p);
+  };
+  await Promise.all(Array.from({ length: Math.min(ROUTE_CONCURRENCY, queue.length) }, worker));
+}
 
-  for (const url of ROUTESET_URLS) {
-    try {
-      const r = await request(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planes: [...missing.values()] }),
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const text = await r.text();
-      const data: unknown = text ? JSON.parse(text) : null;
-      if (!Array.isArray(data)) continue;
-      for (const entry of data as RouteEntry[]) {
-        const cs = (entry.callsign ?? '').trim();
-        if (!cs) continue;
-        const pos = missing.get(cs);
-        routeCache.set(cs, parseRoute(entry, pos?.lat, pos?.lng));
-        missing.delete(cs);
-      }
-      for (const cs of missing.keys()) routeCache.set(cs, [null, null], ROUTE_MISS_TTL_MS);
+async function lookupRoute(p: Plane): Promise<void> {
+  const cs = p.callsign!;
+  try {
+    const r = await request(`${ROUTE_FILES}/${cs.slice(0, 2)}/${cs}.json`);
+    if (r.status === 404) {
+      routeCache.set(cs, [null, null]); // no such flight in the data: don't ask again for a while
       return;
-    } catch (e) {
-      console.warn(`routeset lookup failed at ${url}:`, e);
     }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    routeCache.set(cs, parseRoute((await r.json()) as RouteEntry, p.lat, p.lon));
+  } catch (e) {
+    console.warn(`route lookup failed for ${cs}:`, e);
+    routeCache.set(cs, [null, null], ROUTE_MISS_TTL_MS);
   }
 }

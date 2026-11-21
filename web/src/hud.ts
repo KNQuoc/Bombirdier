@@ -11,6 +11,9 @@
 //                  under its bracket instead of under the compass. Without them: compass only.
 // Voice ("hey grok") status and answers show as subtitles near the bottom.
 // A heading-up radar mini-map sits in the lower left (hidden while a voice answer is showing).
+// Optional extras for callers (all off by default): radarPlanes / radarRangeKm, highlightIds, guideId,
+// showCard. COLORS, fs, label and roundRect are exported so a caller can draw its own panel in the
+// same style on the same canvas after drawHud().
 // The middle of the view stays clear.
 
 import { aircraftStatus, cardLines, flightLabel, statusTag } from './format';
@@ -54,6 +57,16 @@ export type HudState = {
   pitchDeg?: number | null;
   /** Viewer's eye altitude in meters, same reference as Plane.altitudeGeomFt (WGS84 ellipsoid). */
   viewerAltM?: number | null;
+  /** Radar: draw these planes instead of `planes` (e.g. a filtered list reaching far past the AR view). */
+  radarPlanes?: Plane[];
+  /** Radar: fixed range in km instead of fitting the farthest plane. Missing/null = auto. */
+  radarRangeKm?: number | null;
+  /** Planes to call attention to: a pulsing ring on the sky bracket, the compass icon and the radar dot. */
+  highlightIds?: string[];
+  /** The compass shows an arrow toward this plane whenever it is off the bar. */
+  guideId?: string | null;
+  /** false = no info card for the focused plane (something else is using that space). Default: shown. */
+  showCard?: boolean;
 };
 
 const M_PER_FT = 0.3048;
@@ -65,7 +78,7 @@ const SKY_BOTTOM = 0.94;
 /** The card follows the focused plane's bracket only while the bracket is above this (fraction of eye height). */
 const SKY_CARD_MAX_Y = 0.58;
 
-const COLORS = {
+export const COLORS = {
   hud: 'rgba(79, 195, 247, 0.95)',
   hudDim: 'rgba(79, 195, 247, 0.55)',
   focus: '#ffc94d',
@@ -75,7 +88,7 @@ const COLORS = {
 };
 
 /** Icon/accent color per aircraft status (normal planes use the HUD blue, focus adds yellow). */
-const STATUS_COLORS: Record<AircraftStatus, string> = {
+export const STATUS_COLORS: Record<AircraftStatus, string> = {
   emergency: '#ff3b30',
   ground: '#9e9e9e',
   medical: '#c77dff',
@@ -85,11 +98,11 @@ const STATUS_COLORS: Record<AircraftStatus, string> = {
 /** Emergency blink: on/off period in ms. */
 const BLINK_MS = 400;
 
-const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+export const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 /** Global text size multiplier; tune here if text is too big/small in the headset. */
 const TEXT_SCALE = 0.8;
-const fs = (px: number) => Math.round(px * TEXT_SCALE * 10) / 10;
+export const fs = (px: number) => Math.round(px * TEXT_SCALE * 10) / 10;
 
 /** Vertical position of the compass bar (fraction of eye height). The lenses hide the very top. */
 const COMPASS_Y = 0.24;
@@ -114,8 +127,9 @@ export function drawHud(ctx: CanvasRenderingContext2D, w: number, h: number, s: 
   const result = drawPlanes(ctx, w, h, s);
   // The radar steps aside while a voice question/answer is on screen (they share the bottom of the view).
   const voiceShowing = !!(s.voice?.answer || s.voice?.transcript);
-  if (s.headingDeg != null && s.planes.length && !voiceShowing) {
-    drawRadar(ctx, w, h, s, s.headingDeg, result.focus?.id ?? null);
+  const radarPlanes = s.radarPlanes ?? s.planes;
+  if (s.headingDeg != null && radarPlanes.length && !voiceShowing) {
+    drawRadar(ctx, w, h, s, radarPlanes, s.headingDeg, result.focus?.id ?? null);
   }
   if (s.voice) drawVoice(ctx, w, h, s.voice, s.timeMs);
   return result;
@@ -125,8 +139,10 @@ export function drawHud(ctx: CanvasRenderingContext2D, w: number, h: number, s: 
 const RADAR_X = 0.26;
 const RADAR_Y = 0.7;
 const RADAR_R = 0.1;
-/** Radar range snaps to the smallest of these that fits the farthest plane (km). */
-const RADAR_RANGES_KM = [5, 10, 15, 20, 30, 40, 60, 80, 120];
+/** Radar range snaps to the smallest of these that fits the farthest plane (km). 463 km = 250 nm. */
+const RADAR_RANGES_KM = [5, 10, 15, 20, 30, 40, 60, 80, 120, 160, 240, 320, 463];
+/** With more dots than this on the radar, they're drawn smaller so the disc doesn't fill in. */
+const RADAR_CROWDED = 150;
 
 /**
  * Heading-up radar: you're at the center, your view cone points up, planes are dots at their true
@@ -137,14 +153,16 @@ function drawRadar(
   w: number,
   h: number,
   s: HudState,
+  planes: Plane[],
   heading: number,
   focusId: string | null,
 ) {
   const cx = w * RADAR_X;
   const cy = h * RADAR_Y;
   const r = w * RADAR_R;
-  const farthest = Math.max(...s.planes.map((p) => p.distanceKm));
-  const range = RADAR_RANGES_KM.find((km) => km >= farthest) ?? RADAR_RANGES_KM[RADAR_RANGES_KM.length - 1];
+  const farthest = planes.reduce((max, p) => Math.max(max, p.distanceKm), 0);
+  const fitted = RADAR_RANGES_KM.find((km) => km >= farthest) ?? RADAR_RANGES_KM[RADAR_RANGES_KM.length - 1];
+  const range = s.radarRangeKm != null && s.radarRangeKm > 0 ? s.radarRangeKm : fitted;
   // Screen angle for a bearing: straight up = where you're looking.
   const toXY = (bearingDeg: number, frac: number) => {
     const a = (signedDiffDeg(bearingDeg, heading) * Math.PI) / 180;
@@ -196,16 +214,19 @@ function drawRadar(
 
   // Planes, far to near so close ones draw on top; the focused one last.
   const blinkOff = Math.floor(s.timeMs / BLINK_MS) % 2 === 1;
-  const inRange = s.planes.filter((p) => p.distanceKm <= range).sort((a, b) => b.distanceKm - a.distanceKm);
-  const focus = inRange.find((p) => p.id === focusId);
-  for (const p of [...inRange.filter((p) => p !== focus), ...(focus ? [focus] : [])]) {
+  const inRange = planes.filter((p) => p.distanceKm <= range).sort((a, b) => b.distanceKm - a.distanceKm);
+  const marked = new Set(s.highlightIds ?? []);
+  if (focusId) marked.add(focusId);
+  const dot = inRange.length > RADAR_CROWDED ? 1.5 : 2.2;
+  for (const p of [...inRange.filter((p) => !marked.has(p.id)), ...inRange.filter((p) => marked.has(p.id))]) {
     const status = aircraftStatus(p);
     if (status === 'emergency' && blinkOff) continue;
     const [x, y] = toXY(p.bearingDeg, p.distanceKm / range);
-    ctx.fillStyle = p === focus ? COLORS.focus : STATUS_COLORS[status];
+    ctx.fillStyle = marked.has(p.id) ? COLORS.focus : STATUS_COLORS[status];
     ctx.beginPath();
-    ctx.arc(x, y, p === focus ? 3.2 : 2.2, 0, Math.PI * 2);
+    ctx.arc(x, y, marked.has(p.id) ? 3.2 : dot, 0, Math.PI * 2);
     ctx.fill();
+    if (s.highlightIds?.includes(p.id)) drawPulse(ctx, x, y, 4, s.timeMs);
   }
 
   // You.
@@ -258,12 +279,17 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
   const best = withOffset.reduce<(typeof withOffset)[number] | null>((a, b) => (!a || aim(b) < aim(a) ? b : a), null);
   const focus = best && aim(best) <= FOCUS_HALF_DEG ? best : null;
 
+  // A plane the caller wants you to find: the compass points at it whenever it's off the bar.
+  const guide = s.guideId ? withOffset.find((x) => x.p.id === s.guideId) : undefined;
+  const guideOffBar = guide && !onBar.some((m) => m.p.id === guide.p.id) ? guide : undefined;
+
   if (onBar.length === 0 && !focus) {
     focusAnim = null;
-    const nearest = withOffset.sort((a, b) => Math.abs(a.off) - Math.abs(b.off))[0];
+    const nearest = guideOffBar ?? [...withOffset].sort((a, b) => Math.abs(a.off) - Math.abs(b.off))[0];
     if (nearest) drawEdgeArrow(ctx, barY, x0, x1, nearest.p, nearest.off);
     return NO_PLANES;
   }
+  if (guideOffBar) drawEdgeArrow(ctx, barY, x0, x1, guideOffBar.p, guideOffBar.off);
 
   // Far to near, so closer aircraft draw on top.
   const byDistance = [...onBar].sort((a, b) => b.p.distanceKm - a.p.distanceKm);
@@ -275,6 +301,12 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
     .map(([id, pt]) => ({ p: s.planes.find((p) => p.id === id)!, pt }))
     .sort((a, b) => b.p.distanceKm - a.p.distanceKm);
   for (const m of inSky) if (m.p.id !== focus?.p.id) drawSkyMarker(ctx, m.pt, m.p, false, s.timeMs);
+  for (const id of s.highlightIds ?? []) {
+    const onBarAt = onBar.find((m) => m.p.id === id);
+    if (onBarAt) drawPulse(ctx, onBarAt.x, barY, 10, s.timeMs);
+    const inSkyAt = inSky.find((m) => m.p.id === id);
+    if (inSkyAt) drawPulse(ctx, inSkyAt.pt.x, inSkyAt.pt.y, 16, s.timeMs);
+  }
   const inView = onBar.map((m) => ({ ...m.p, offsetDeg: m.off }));
 
   if (!focus) {
@@ -299,8 +331,23 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
       cardTop = Math.max(cardTop, pt.y + r + 8);
     }
   }
-  drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, statusTag(focus.p));
+  if (s.showCard !== false) drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, statusTag(focus.p));
   return { focus: { ...focus.p, offsetDeg: focus.off }, inView };
+}
+
+/** Attention ring that grows and fades once every 1.2 s, around a marker of radius `r`. */
+function drawPulse(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, timeMs: number) {
+  const t = (timeMs % 1200) / 1200;
+  ctx.save();
+  ctx.strokeStyle = COLORS.focus;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 1 - t;
+  ctx.shadowColor = COLORS.shadow;
+  ctx.shadowBlur = 3;
+  ctx.beginPath();
+  ctx.arc(x, y, r * (1 + 1.2 * t), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Where plane `p` appears in the camera image, using its altitude; null if unknown or behind you. */
@@ -654,7 +701,7 @@ function drawEdgeArrow(ctx: CanvasRenderingContext2D, barY: number, x0: number, 
   label(ctx, left ? x0 + 2 : x1 - 2, labelRowY(barY) + fs(16), text, fs(12), COLORS.text, left ? 'left' : 'right', true);
 }
 
-function label(
+export function label(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -674,7 +721,7 @@ function label(
   ctx.restore();
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);

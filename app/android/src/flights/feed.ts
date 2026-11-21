@@ -34,7 +34,7 @@ const KM_PER_NM = 1.852;
  * time since the data was fetched, with distance/bearing recomputed from the viewer's position.
  * Planes on the ground or without speed/track stay put. Flat-earth step: fine for < ~15 km moves.
  */
-function extrapolate(planes: Plane[], fetchedAt: number, now: number, viewer: LatLon): Plane[] {
+export function extrapolate(planes: Plane[], fetchedAt: number, now: number, viewer: LatLon): Plane[] {
   const hours = Math.min(MAX_EXTRAPOLATE_S, Math.max(0, (now - fetchedAt) / 1000)) / 3600;
   return planes.map((p) => {
     let { lat, lon, altitudeFt, altitudeGeomFt } = p;
@@ -63,17 +63,24 @@ function extrapolate(planes: Plane[], fetchedAt: number, now: number, viewer: La
   });
 }
 
+/** The AR view's feed. `throttled` lets the 250 nm poller stay out of the way (one rate limit for both). */
+export type NearFeed = PlaneFeed & {
+  /** True if the latest poll was rate-limited, failed or slow. */
+  throttled: () => boolean;
+};
+
 /**
  * Polls adsb.lol around the GPS position with an adaptive interval (see MIN_POLL_MS), starting each
  * poll after the previous one finishes so slow responses never pile up. On failure it keeps the
  * last good data. Positions are extrapolated between polls so planes glide instead of jumping.
  */
-export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () => LatLon | null }): PlaneFeed {
+export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () => LatLon | null }): NearFeed {
   let status = 'live · waiting for GPS';
   let polled: { planes: Plane[]; fetchedAt: number; at: LatLon } | null = null;
   let current: FeedState = { planes: [], status };
   let computedAt = 0;
   let interval = MIN_POLL_MS;
+  let lastThrottled = false;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -91,6 +98,7 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
     polled = { planes, fetchedAt, at: pos };
     computedAt = 0; // recompute on the next get()
     const throttled = problem != null || Date.now() - startedAt > SLOW_ANSWER_MS;
+    lastThrottled = throttled;
     interval = throttled ? Math.min(MAX_POLL_MS, interval * 1.5) : Math.max(MIN_POLL_MS, interval - 1000);
     const age = Math.round((Date.now() - fetchedAt) / 1000);
     status =
@@ -114,6 +122,7 @@ export function startLiveFeed(opts: { radiusKm: number | null; getPosition: () =
       }
       return current;
     },
+    throttled: () => lastThrottled,
     stop: () => {
       stopped = true;
       clearTimeout(timer);

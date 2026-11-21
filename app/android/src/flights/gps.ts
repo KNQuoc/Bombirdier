@@ -24,3 +24,8 @@ export function watchPosition(onFix?: (pos: LatLon) => void): GpsWatch {
   );
   return { get: () => pos, stop: () => navigator.geolocation.clearWatch(id) };
 }
+
+/** A position that never changes, in place of GPS (desktop dev mode: ?dev=1&at=lat,lon). */
+export function fixedPosition(pos: LatLon): GpsWatch {
+  return { get: () => pos, stop: () => {} };
+}
