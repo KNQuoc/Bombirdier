@@ -15,6 +15,12 @@ export type Plane = {
   lat: number;
   lon: number;
   altitudeFt: number | null;
+  /**
+   * GPS (geometric) altitude in ft from ADS-B alt_geom: height above the WGS84 ellipsoid, the same
+   * reference as the phone's GPS altitude. Preferred over the barometric altitudeFt for placing the
+   * plane in the sky. Optional for older data.
+   */
+  altitudeGeomFt?: number | null;
   groundSpeedKt: number | null;
   trackDeg: number | null;
   /** Vertical rate in ft/min (+ = climbing), from ADS-B baro_rate. Optional for older data. */
@@ -34,7 +40,12 @@ export type Plane = {
   medical?: boolean;
 };
 
-export type LatLon = { lat: number; lon: number };
+export type LatLon = {
+  lat: number;
+  lon: number;
+  /** GPS altitude in meters (WGS84 ellipsoid), if the fix has one. */
+  altM?: number | null;
+};
 
 export type FlightsResponse = {
   center: LatLon;

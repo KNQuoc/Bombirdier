@@ -6,13 +6,17 @@
 //   below the bar: degree ticks/labels, current heading
 //   right under that: info card for the focused plane, attached to the compass
 //                  (drops down like a notification)
+//   in the sky:    when the caller passes pitchDeg + viewerAltM, a bracket on each plane at its
+//                  real position (direction AND altitude), and the focused plane's card hangs
+//                  under its bracket instead of under the compass. Without them: compass only.
 // Voice ("hey grok") status and answers show as subtitles near the bottom.
 // A heading-up radar mini-map sits in the lower left (hidden while a voice answer is showing).
 // The middle of the view stays clear.
 
 import { aircraftStatus, cardLines, flightLabel, statusTag } from './format';
 import type { AircraftStatus } from './format';
-import { halfFovDeg, normalizeDeg, projectX, signedDiffDeg } from './geo';
+import { elevationDeg, halfFovDeg, normalizeDeg, projectSky, projectX, signedDiffDeg } from './geo';
+import type { SkyPoint } from './geo';
 import type { Plane } from './planes';
 import type { VoiceState } from './voice';
 
@@ -43,7 +47,23 @@ export type HudState = {
   timeMs: number;
   /** null = voice disabled. */
   voice: VoiceHud | null;
+  /**
+   * Camera pitch, degrees above the horizon. Together with viewerAltM this turns on sky markers
+   * (planes placed at their real altitude). Missing/null = compass bar only, as before.
+   */
+  pitchDeg?: number | null;
+  /** Viewer's eye altitude in meters, same reference as Plane.altitudeGeomFt (WGS84 ellipsoid). */
+  viewerAltM?: number | null;
 };
+
+const M_PER_FT = 0.3048;
+/** Ground traffic sits about this far below your eyes: right at the horizon. */
+const GROUND_TRAFFIC_BELOW_EYE_M = 1.7;
+/** Sky markers are only drawn inside this vertical band (fractions of eye height): the lenses hide the rest. */
+const SKY_TOP = 0.06;
+const SKY_BOTTOM = 0.94;
+/** The card follows the focused plane's bracket only while the bracket is above this (fraction of eye height). */
+const SKY_CARD_MAX_Y = 0.58;
 
 const COLORS = {
   hud: 'rgba(79, 195, 247, 0.95)',
@@ -224,18 +244,37 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
     return NO_PLANES;
   }
 
-  if (onBar.length === 0) {
+  // Sky mode: where each plane really is in the camera image (direction + altitude).
+  const sky = new Map<string, SkyPoint>();
+  if (s.pitchDeg != null && s.viewerAltM != null) {
+    for (const p of s.planes) {
+      const pt = skyPoint(p, heading, s.pitchDeg, s.viewerAltM, s.halfTan, w, h);
+      if (pt) sky.set(p.id, pt);
+    }
+  }
+  // Focus = the plane closest to the view center: by true angle in sky mode, by compass direction
+  // otherwise (or for a plane with no altitude).
+  const aim = (x: { p: Plane; off: number }) => sky.get(x.p.id)?.offCenterDeg ?? Math.abs(x.off);
+  const best = withOffset.reduce<(typeof withOffset)[number] | null>((a, b) => (!a || aim(b) < aim(a) ? b : a), null);
+  const focus = best && aim(best) <= FOCUS_HALF_DEG ? best : null;
+
+  if (onBar.length === 0 && !focus) {
     focusAnim = null;
     const nearest = withOffset.sort((a, b) => Math.abs(a.off) - Math.abs(b.off))[0];
     if (nearest) drawEdgeArrow(ctx, barY, x0, x1, nearest.p, nearest.off);
     return NO_PLANES;
   }
 
-  const closest = onBar.reduce((a, b) => (Math.abs(b.off) < Math.abs(a.off) ? b : a));
-  const focus = Math.abs(closest.off) <= FOCUS_HALF_DEG ? closest : null;
   // Far to near, so closer aircraft draw on top.
   const byDistance = [...onBar].sort((a, b) => b.p.distanceKm - a.p.distanceKm);
-  for (const m of byDistance) if (m !== focus) drawAircraft(ctx, m.x, barY, m.p, false, s.timeMs);
+  for (const m of byDistance) if (m.p.id !== focus?.p.id) drawAircraft(ctx, m.x, barY, m.p, false, s.timeMs);
+  const inSky = [...sky.entries()]
+    .filter(([, pt]) => pt.x >= x0 && pt.x <= x1 && pt.y >= h * SKY_TOP && pt.y <= h * SKY_BOTTOM)
+    // The radar mini-map covers this patch of the view; don't draw markers underneath it.
+    .filter(([, pt]) => Math.hypot(pt.x - w * RADAR_X, pt.y - h * RADAR_Y) > w * RADAR_R + fs(20))
+    .map(([id, pt]) => ({ p: s.planes.find((p) => p.id === id)!, pt }))
+    .sort((a, b) => b.p.distanceKm - a.p.distanceKm);
+  for (const m of inSky) if (m.p.id !== focus?.p.id) drawSkyMarker(ctx, m.pt, m.p, false, s.timeMs);
   const inView = onBar.map((m) => ({ ...m.p, offsetDeg: m.off }));
 
   if (!focus) {
@@ -244,11 +283,78 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
   }
   if (focusAnim?.id !== focus.p.id) focusAnim = { id: focus.p.id, since: s.timeMs };
   const t = Math.min(1, (s.timeMs - focusAnim.since) / CARD_ANIM_MS);
-  drawAircraft(ctx, focus.x, barY, focus.p, true, s.timeMs);
+  const focusX = projectX(focus.off, s.halfTan, w);
+  if (focusX != null && focusX >= x0 && focusX <= x1) drawAircraft(ctx, focusX, barY, focus.p, true, s.timeMs);
   const status = aircraftStatus(focus.p);
   const accent = status === 'normal' ? COLORS.focus : STATUS_COLORS[status];
-  drawCard(ctx, w, focus.x, barY, cardLines(focus.p), t, accent, statusTag(focus.p));
+
+  // The card hangs under the plane's bracket when there's room, otherwise under the compass.
+  const pt = inSky.find((m) => m.p.id === focus.p.id)?.pt;
+  let cardX = focusX ?? w / 2;
+  let cardTop = labelRowY(barY) + fs(10);
+  if (pt) {
+    const r = drawSkyMarker(ctx, pt, focus.p, true, s.timeMs);
+    if (pt.y <= h * SKY_CARD_MAX_Y) {
+      cardX = pt.x;
+      cardTop = Math.max(cardTop, pt.y + r + 8);
+    }
+  }
+  drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, statusTag(focus.p));
   return { focus: { ...focus.p, offsetDeg: focus.off }, inView };
+}
+
+/** Where plane `p` appears in the camera image, using its altitude; null if unknown or behind you. */
+function skyPoint(
+  p: Plane,
+  heading: number,
+  pitch: number,
+  viewerAltM: number,
+  halfTan: number,
+  w: number,
+  h: number,
+): SkyPoint | null {
+  let heightDiffM: number;
+  if (p.onGround) {
+    heightDiffM = -GROUND_TRAFFIC_BELOW_EYE_M;
+  } else {
+    // GPS altitude matches the phone's GPS reference; barometric is the fallback (can be ~100 ft off).
+    const ft = p.altitudeGeomFt ?? p.altitudeFt;
+    if (ft == null) return null;
+    heightDiffM = ft * M_PER_FT - viewerAltM;
+  }
+  return projectSky(p.bearingDeg, elevationDeg(heightDiffM, p.distanceKm), heading, pitch, halfTan, w, h);
+}
+
+/**
+ * Corner brackets around a plane at its real spot in the sky, sized by distance and colored by
+ * status. The focused plane gets a bigger, yellow (or status-colored) bracket; others get a small
+ * callsign label underneath. Returns the bracket's half-size in px.
+ */
+function drawSkyMarker(ctx: CanvasRenderingContext2D, pt: SkyPoint, p: Plane, focus: boolean, timeMs: number): number {
+  const status = aircraftStatus(p);
+  const blinkOff = status === 'emergency' && Math.floor(timeMs / BLINK_MS) % 2 === 1;
+  const far = Math.min(1, p.distanceKm / ICON_FAR_KM);
+  const r = focus ? 16 : 11 - 4 * far;
+  const arm = r * 0.5;
+  const color = focus && status === 'normal' ? COLORS.focus : STATUS_COLORS[status];
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = focus ? 2.5 : 1.5;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = COLORS.shadow;
+  ctx.shadowBlur = 4;
+  ctx.globalAlpha = blinkOff ? 0.25 : focus ? 1 : 0.85;
+  ctx.beginPath();
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    ctx.moveTo(pt.x + sx * r, pt.y + sy * (r - arm));
+    ctx.lineTo(pt.x + sx * r, pt.y + sy * r);
+    ctx.lineTo(pt.x + sx * (r - arm), pt.y + sy * r);
+  }
+  ctx.stroke();
+  ctx.restore();
+  if (!focus) label(ctx, pt.x, pt.y + r + fs(8), flightLabel(p), fs(9), 'rgba(255,255,255,0.85)', 'center');
+  return r;
 }
 
 let voiceStartMs: number | null = null;
@@ -459,14 +565,15 @@ function drawAircraft(ctx: CanvasRenderingContext2D, x: number, y: number, p: Pl
 const labelRowY = (barY: number) => barY + fs(18);
 
 /**
- * Info card attached right under the compass, dropping down from it. `t` is animation progress 0..1.
+ * Info card with its top edge at `topY` (under the compass, or under the plane's sky bracket),
+ * dropping down into place; the notch points up at x = `mx`. `t` is animation progress 0..1.
  * `accent` colors the side bar and notch; `tag` (e.g. "MEDICAL") is an optional line above the title.
  */
 function drawCard(
   ctx: CanvasRenderingContext2D,
   w: number,
   mx: number,
-  barY: number,
+  topY: number,
   lines: string[],
   t: number,
   accent: string,
@@ -493,7 +600,7 @@ function drawCard(
   const cardW = Math.min(w - 12, Math.max(...widths) + pad * 2 + 4);
   const cardH = pad * 2 + tagH + titleSize + (lines.length - 1) * (bodySize + lineGap);
   const x = Math.max(6, Math.min(w - cardW - 6, mx - cardW / 2));
-  const y = labelRowY(barY) + fs(10) - (1 - ease) * 8;
+  const y = topY - (1 - ease) * 8;
 
   ctx.fillStyle = COLORS.panel;
   roundRect(ctx, x, y, cardW, cardH, 6);

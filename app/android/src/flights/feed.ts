@@ -37,17 +37,26 @@ const KM_PER_NM = 1.852;
 function extrapolate(planes: Plane[], fetchedAt: number, now: number, viewer: LatLon): Plane[] {
   const hours = Math.min(MAX_EXTRAPOLATE_S, Math.max(0, (now - fetchedAt) / 1000)) / 3600;
   return planes.map((p) => {
-    let { lat, lon } = p;
+    let { lat, lon, altitudeFt, altitudeGeomFt } = p;
     if (!p.onGround && p.groundSpeedKt && p.trackDeg != null) {
       const km = p.groundSpeedKt * KM_PER_NM * hours;
       const t = toRad(p.trackDeg);
       lat += (km * Math.cos(t)) / KM_PER_DEG_LAT;
       lon += (km * Math.sin(t)) / (KM_PER_DEG_LAT * Math.cos(toRad(lat)));
     }
+    // Climb/descend too, so the sky marker stays on the plane between polls (a 1,800 fpm descent
+    // is ~900 ft in a 30 s gap). Never below 0.
+    if (!p.onGround && p.verticalRateFpm) {
+      const ft = p.verticalRateFpm * hours * 60;
+      if (altitudeFt != null) altitudeFt = Math.max(0, altitudeFt + ft);
+      if (altitudeGeomFt != null) altitudeGeomFt = Math.max(0, altitudeGeomFt + ft);
+    }
     return {
       ...p,
       lat,
       lon,
+      altitudeFt,
+      altitudeGeomFt,
       distanceKm: haversineKm(viewer.lat, viewer.lon, lat, lon),
       bearingDeg: bearingDeg(viewer.lat, viewer.lon, lat, lon),
     };

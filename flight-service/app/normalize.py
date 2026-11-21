@@ -140,6 +140,9 @@ def normalize(ac: dict, center_lat: float, center_lon: float) -> dict | None:
         "lat": lat,
         "lon": lon,
         "altitudeFt": altitude_ft,
+        # GPS altitude (WGS84 ellipsoid), used to place the plane in the sky. Keep in sync with
+        # app/android/src/flights/normalize.ts.
+        "altitudeGeomFt": _num(ac.get("alt_geom")),
         "groundSpeedKt": _num(ac.get("gs")),
         "trackDeg": _num(ac.get("track")),
         "verticalRateFpm": vertical_rate,

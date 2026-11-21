@@ -14,7 +14,9 @@ export function watchPosition(onFix?: (pos: LatLon) => void): GpsWatch {
   if (!navigator.geolocation) return { get: () => null, stop: () => {} };
   const id = navigator.geolocation.watchPosition(
     (p) => {
-      pos = { lat: p.coords.latitude, lon: p.coords.longitude };
+      // altitude: meters above the WGS84 ellipsoid (null if the fix has none). Same reference as
+      // ADS-B alt_geom, so the two compare directly when placing planes in the sky.
+      pos = { lat: p.coords.latitude, lon: p.coords.longitude, altM: p.coords.altitude };
       onFix?.(pos);
     },
     () => {},

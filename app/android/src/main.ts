@@ -35,6 +35,14 @@ import { measureScreenLongEdgeMm } from './screen-size';
 // Desktop only (npm run dev): ?dev=1 = arrow keys set the heading, camera optional.
 const DEV = new URLSearchParams(location.search).has('dev');
 
+/** Sky markers: your eyes are this far above the ground (5'9"). Only used with FALLBACK_GROUND_M. */
+const EYE_HEIGHT_M = 1.75;
+/**
+ * Ground elevation used until GPS reports an altitude (meters, ~Bowling Green, OH). Change it for
+ * wherever you demo: plane altitudes are above sea level, so this matters far more than eye height.
+ */
+const FALLBACK_GROUND_M = 205;
+
 /** A typical ~6.3" phone: used only when the screen size or lens FOV can't be measured. */
 const FALLBACK = getPreset('generic');
 
@@ -64,6 +72,7 @@ let gps: GpsWatch | null = null;
 let suspended = false;
 let rafId = 0;
 let devHeading = 0;
+let devPitch = 0;
 /** Latest computed half-FOV, for the calibration toast and debug line. */
 let lastHalfFovDeg = 0;
 let hudError = '';
@@ -101,7 +110,7 @@ async function initSettings() {
   radiusInput.value = settings.radiusKm == null ? '' : String(settings.radiusKm);
   await refreshCameraList();
 
-  if (DEV) settingsStatus.textContent = 'Dev mode: ← → turn (hold Shift for 10°).';
+  if (DEV) settingsStatus.textContent = 'Dev mode: ← → turn, ↑ ↓ look up/down (hold Shift for 10°).';
 }
 
 /** Camera labels are only available after permission has been granted once. */
@@ -153,6 +162,17 @@ function currentHeading(): number | null {
   return h == null ? null : normalizeDeg(h + declinationCorrectionDeg());
 }
 
+/** Camera pitch in degrees above the horizon (null until the sensors report). */
+function currentPitch(): number | null {
+  if (DEV) return devPitch;
+  return orientation?.get()?.pitchDeg ?? null;
+}
+
+/** Your eye altitude (m, WGS84 like ADS-B alt_geom): GPS when it has one, else the fallback ground + eye height. */
+function viewerAltM(): number {
+  return gps?.get()?.altM ?? FALLBACK_GROUND_M + EYE_HEIGHT_M;
+}
+
 /** Per-frame: compute the visible FOV and draw the HUD canvas in both eyes. */
 function frame() {
   if (!view) return;
@@ -180,6 +200,8 @@ function frame() {
     status: feedState?.status ?? '',
     timeMs: performance.now(),
     voice: null,
+    pitchDeg: currentPitch(),
+    viewerAltM: viewerAltM(),
   };
   // Both eyes get identical input (required for the images to fuse).
   for (const eye of view.eyes) drawHud(eye.ctx, width, height, hud);
@@ -508,6 +530,8 @@ window.addEventListener('keydown', (e) => {
   const step = e.shiftKey ? 10 : 2;
   if (e.key === 'ArrowLeft') devHeading = normalizeDeg(devHeading - step);
   else if (e.key === 'ArrowRight') devHeading = normalizeDeg(devHeading + step);
+  else if (e.key === 'ArrowUp') devPitch = Math.min(89, devPitch + step);
+  else if (e.key === 'ArrowDown') devPitch = Math.max(-89, devPitch - step);
 });
 window.addEventListener('resize', relayout);
 // Back: in compass calibration = back to settings; in settings = back to the view; in the view = leave the app.

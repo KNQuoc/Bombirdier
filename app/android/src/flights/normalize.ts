@@ -81,6 +81,7 @@ export function normalize(ac: RawAircraft, centerLat: number, centerLon: number)
     lat,
     lon,
     altitudeFt,
+    altitudeGeomFt: num(ac.alt_geom),
     groundSpeedKt: num(ac.gs),
     trackDeg: num(ac.track),
     verticalRateFpm,
