@@ -122,7 +122,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 - [ ] RTL-SDR feed for Wood County CTAF (122.975). Needs a dongle. Less pressing than the plan thought: LiveATC does carry Wood County's CTAF, and it is the first feed in `feeds.json`
 - [x] List filters applied to the sky view: "only show helicopters in the sky", "apply that filter to the sky", "show everything in the sky again" (`src/sky-filter.ts`). A marker on the HUD says when one is on, and it is not kept across restarts
-- [ ] X-Plane mode
+- [ ] X-Plane mode: skipped for now (Kien, 2026-11-21)
 - [x] Auto active runway: from the traffic (done in Phase 2: `pattern/runway.ts`), and now from the wind when no traffic has shown it (`pattern/wind.ts`: the nearest weather report through the Mac, asked every ten minutes; under 4 knots or variable = the calm-wind runway)
 - [x] Pattern in the sky (done in Phase 2)
 - [ ] Sky filter and wind runway on the phone: built and checked in the desktop preview on live data; not yet tried on the phone
@@ -133,6 +133,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 6 · X-Plane mode skipped for now at Kien's call. What remains across all phases needs the field, daylight or the headset rather than more code (see the open boxes above).
 - 2026-11-21 · phase 6 · Two stretch goals. **Filters in the sky**: "only show helicopters in the sky" limits the compass bar, the brackets and the radar; "apply that filter to the sky" copies the list's filter; a marker on the HUD shows it is on. **Runway from the wind**: with no pattern traffic to go by, the runway most into the wind at the nearest weather station is used (live: "Runway 10, from the wind, 130 at 4 at Toledo Executive"). Both checked in the desktop preview on live data; 31 app tests and 251 server checks pass.
 - 2026-11-21 · phase 4 · Capture extension confirmed in Kien's Chrome: all five player tabs captured through it, no sharing bars, the same audio levels arriving at the server as with the old way. No call has been transcribed through it yet (nobody was talking, 3 am).
 - 2026-11-21 · phase 4 · Capture extension 0.3.1: reloading the extension cut its link to an already-open capture page ("The capture page is not answering", seen by Kien). It now puts its relay script back into the page itself. Checked in Chrome 149 against the real capture page.
