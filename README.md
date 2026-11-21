@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/banner.svg" width="100%" alt="Bombirdier: a small plane flies across an evening sky. Brackets lock onto it, a card drops under it, and it changes colour when a controller hands it to Cleveland Center.">
+</p>
+
 # Bombirdier
 
 **Look up and see the airspace.** An AR trainer for people learning air traffic control: every plane in the sky is labelled, coloured by the controller working it, and tied to the live radio call that names it.

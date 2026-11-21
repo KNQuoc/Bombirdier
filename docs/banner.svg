@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-labelledby="bn-title bn-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="bn-title">Bombirdier</title>
+  <desc id="bn-desc">A small plane flies across an evening sky. Brackets lock onto it, a card drops under it, and it changes colour when a controller hands it to Cleveland Center.</desc>
+
+  <!--
+    The README banner. CSS animation only (no script, no SMIL), so it plays inside an <img> on GitHub
+    and stops for people who ask for reduced motion. Without animation every element sits in its
+    resting place: plane mid-sky, brackets and card showing.
+    One loop is 14 s. The plane crosses at a steady speed; the handoff happens at 52 %.
+    Colours are the app's: Detroit pink, Cleveland Center blue, focus yellow.
+  -->
+  <style>
+    .fly   { transform: translate(600px, 128px); animation: fly 14s linear infinite; }
+    .bob   { animation: bob 2.6s ease-in-out infinite alternate; }
+    .tilt  { animation: tilt 2.6s ease-in-out infinite alternate; }
+    .tint  { fill: #4fc3f7; animation: tint 14s linear infinite; }
+    .lock  { animation: lock 14s linear infinite; }
+    .card  { animation: card 14s linear infinite; }
+    .was   { opacity: 0; animation: was 14s linear infinite; }
+    .now   { animation: now 14s linear infinite; }
+    .say   { opacity: 0; animation: say 14s linear infinite; }
+    .ring  { opacity: 0; animation: ring 14s linear infinite; }
+    .tail  { animation: blink 1.1s steps(1) infinite; }
+    .far   { transform: translate(300px, 60px); animation: far 34s linear infinite; }
+    .cloud { animation: drift 80s linear infinite; }
+    .cloud.b { animation-duration: 110s; animation-delay: -45s; }
+    .star  { animation: twinkle 3.6s ease-in-out infinite alternate; }
+    .star:nth-of-type(3n)   { animation-delay: -1.2s; animation-duration: 4.4s; }
+    .star:nth-of-type(3n+1) { animation-delay: -2.5s; animation-duration: 2.9s; }
+    .wave  { opacity: 0; animation: wave 2.4s ease-out infinite; }
+    .wave.w2 { animation-delay: .35s; }
+    .wave.w3 { animation-delay: .7s; }
+    .lamp  { opacity: .25; animation: lamp 1.4s linear infinite; }
+    .lamp:nth-of-type(2) { animation-delay: .14s; }
+    .lamp:nth-of-type(3) { animation-delay: .28s; }
+    .lamp:nth-of-type(4) { animation-delay: .42s; }
+    .lamp:nth-of-type(5) { animation-delay: .56s; }
+    .lamp:nth-of-type(6) { animation-delay: .70s; }
+    .lamp:nth-of-type(7) { animation-delay: .84s; }
+    .beacon { animation: blink 1.6s steps(1) infinite; }
+
+    @keyframes fly  { from { transform: translate(-140px, 128px); } to { transform: translate(1340px, 128px); } }
+    @keyframes bob  { from { transform: translateY(-7px); } to { transform: translateY(7px); } }
+    @keyframes tilt { from { transform: rotate(-3deg); } to { transform: rotate(2deg); } }
+    @keyframes tint { 0%, 51% { fill: #ff6fb5; } 55%, 100% { fill: #4fc3f7; } }
+    @keyframes lock {
+      0%, 12%  { opacity: 0; transform: scale(1.8); }
+      16%      { opacity: 1; transform: scale(.94); }
+      18%, 80% { opacity: 1; transform: scale(1); }
+      85%, 100% { opacity: 0; transform: scale(1.25); }
+    }
+    @keyframes card {
+      0%, 16%  { opacity: 0; transform: translateY(-12px); }
+      20%, 77% { opacity: 1; transform: translateY(0); }
+      81%, 100% { opacity: 0; transform: translateY(-8px); }
+    }
+    @keyframes was  { 0%, 51% { opacity: 1; } 54%, 100% { opacity: 0; } }
+    @keyframes now  { 0%, 52% { opacity: 0; } 56%, 100% { opacity: 1; } }
+    @keyframes say {
+      0%, 41%  { opacity: 0; transform: translateY(8px) scale(.9); }
+      44%, 58% { opacity: 1; transform: translateY(0) scale(1); }
+      62%, 100% { opacity: 0; transform: translateY(-6px) scale(.96); }
+    }
+    @keyframes ring {
+      0%, 51% { opacity: 0; transform: scale(.5); }
+      53%     { opacity: .9; }
+      60%, 100% { opacity: 0; transform: scale(2.1); }
+    }
+    @keyframes far     { from { transform: translate(1300px, 60px); } to { transform: translate(-120px, 44px); } }
+    @keyframes drift   { from { transform: translateX(1250px); } to { transform: translateX(-420px); } }
+    @keyframes twinkle { from { opacity: .25; } to { opacity: 1; } }
+    @keyframes wave    { 0% { opacity: .9; transform: scale(.4); } 100% { opacity: 0; transform: scale(1.5); } }
+    @keyframes lamp    { 0%, 12% { opacity: 1; } 24%, 100% { opacity: .25; } }
+    @keyframes blink   { 0%, 55% { opacity: 1; } 56%, 100% { opacity: .15; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="bn-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a1230"/>
+      <stop offset=".5" stop-color="#1b2759"/>
+      <stop offset=".8" stop-color="#553c7c"/>
+      <stop offset="1" stop-color="#e9906c"/>
+    </linearGradient>
+    <linearGradient id="bn-trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".6"/>
+    </linearGradient>
+    <clipPath id="bn-frame"><rect width="1200" height="400" rx="20"/></clipPath>
+    <mask id="bn-moon">
+      <rect x="1040" y="10" width="120" height="100" fill="#fff"/>
+      <circle cx="1101" cy="44" r="17" fill="#000"/>
+    </mask>
+  </defs>
+
+  <g clip-path="url(#bn-frame)">
+    <rect width="1200" height="400" fill="url(#bn-sky)"/>
+
+    <!-- stars and a moon -->
+    <g fill="#ffffff">
+      <circle class="star" cx="70" cy="48" r="1.6"/>
+      <circle class="star" cx="168" cy="96" r="1.2"/>
+      <circle class="star" cx="246" cy="34" r="1.8"/>
+      <circle class="star" cx="352" cy="78" r="1.1"/>
+      <circle class="star" cx="438" cy="28" r="1.5"/>
+      <circle class="star" cx="536" cy="62" r="1.2"/>
+      <circle class="star" cx="640" cy="24" r="1.7"/>
+      <circle class="star" cx="742" cy="88" r="1.1"/>
+      <circle class="star" cx="828" cy="40" r="1.5"/>
+      <circle class="star" cx="930" cy="72" r="1.2"/>
+      <circle class="star" cx="1002" cy="26" r="1.6"/>
+      <circle class="star" cx="1158" cy="104" r="1.3"/>
+      <circle class="star" cx="118" cy="170" r="1.1"/>
+      <circle class="star" cx="884" cy="176" r="1.2"/>
+      <circle class="star" cx="1066" cy="196" r="1.4"/>
+    </g>
+    <circle cx="1090" cy="50" r="20" fill="#fdf1c2" mask="url(#bn-moon)"/>
+
+    <!-- clouds -->
+    <g class="cloud" fill="#ffffff" opacity=".1">
+      <g transform="translate(0 210)">
+        <ellipse cx="0" cy="0" rx="90" ry="20"/>
+        <ellipse cx="-40" cy="-14" rx="44" ry="20"/>
+        <ellipse cx="24" cy="-20" rx="52" ry="24"/>
+      </g>
+    </g>
+    <g class="cloud b" fill="#ffffff" opacity=".08">
+      <g transform="translate(0 92)">
+        <ellipse cx="0" cy="0" rx="120" ry="18"/>
+        <ellipse cx="-30" cy="-14" rx="56" ry="20"/>
+        <ellipse cx="50" cy="-12" rx="46" ry="16"/>
+      </g>
+    </g>
+
+    <!-- a far plane going the other way -->
+    <g class="far" opacity=".5">
+      <g transform="scale(-.36 .36)" fill="#b9c8ea">
+        <path d="M-42,0 C-42,-10 -20,-13 10,-13 C30,-13 44,-6 46,0 C44,7 30,11 10,11 C-15,11 -36,8 -42,0 Z"/>
+        <path d="M-40,-2 L-56,-27 L-41,-27 L-22,-10 Z"/>
+        <path d="M-4,4 L-24,27 L-9,27 L16,4 Z"/>
+      </g>
+    </g>
+
+    <!-- the ground: hills, runway lights, a radio mast -->
+    <path d="M0,370 C160,354 300,364 460,368 C640,373 800,356 990,362 C1090,365 1150,360 1200,364 L1200,400 L0,400 Z" fill="#070c1d"/>
+    <g fill="#ffe08a">
+      <circle class="lamp" cx="520" cy="384" r="3"/>
+      <circle class="lamp" cx="556" cy="384" r="3"/>
+      <circle class="lamp" cx="592" cy="384" r="3"/>
+      <circle class="lamp" cx="628" cy="384" r="3"/>
+      <circle class="lamp" cx="664" cy="384" r="3"/>
+      <circle class="lamp" cx="700" cy="384" r="3"/>
+      <circle class="lamp" cx="736" cy="384" r="3"/>
+    </g>
+    <g transform="translate(1076 300)">
+      <g fill="none" stroke="#2ee6c8" stroke-width="2.5" stroke-linecap="round">
+        <path class="wave" d="M-12,-10 A16,16 0 0 1 12,-10"/>
+        <path class="wave w2" d="M-22,-16 A28,28 0 0 1 22,-16"/>
+        <path class="wave w3" d="M-32,-22 A40,40 0 0 1 32,-22"/>
+      </g>
+      <path d="M0,0 L-12,66 M0,0 L12,66 M-4,22 L8,44 M4,22 L-8,44 M-8,44 L11,62 M8,44 L-11,62" fill="none" stroke="#070c1d" stroke-width="3" stroke-linecap="round"/>
+      <circle class="beacon" cx="0" cy="-2" r="4" fill="#ff5a5a"/>
+    </g>
+
+    <!-- the name -->
+    <text x="48" y="316" font-size="62" font-weight="800" fill="#ffffff" letter-spacing="-1">Bombirdier</text>
+    <text x="51" y="348" font-size="19" font-weight="500" fill="#d5dcff">Look up and see the airspace.</text>
+
+    <!-- the plane, with what the app hangs on it -->
+    <g class="fly">
+      <g class="bob">
+        <!-- what the controller says -->
+        <g class="say">
+          <g transform="translate(0 -74)">
+            <path d="M-118,-17 h236 a12,12 0 0 1 12,12 v10 a12,12 0 0 1 -12,12 h-108 l-10,11 l-10,-11 h-108 a12,12 0 0 1 -12,-12 v-10 a12,12 0 0 1 12,-12 Z" fill="#ffffff"/>
+            <g fill="none" stroke="#2a7fd0" stroke-width="2" stroke-linecap="round">
+              <path d="M-106,2 a4,4 0 0 1 0,-6"/>
+              <path d="M-110,6 a9,9 0 0 1 0,-14"/>
+            </g>
+            <circle cx="-102" cy="-1" r="2.2" fill="#2a7fd0"/>
+            <text x="8" y="5" text-anchor="middle" font-size="14" font-style="italic" font-weight="600" fill="#14204a">&#8220;contact Cleveland Center&#8221;</text>
+          </g>
+        </g>
+
+        <!-- the handoff ring -->
+        <circle class="ring" r="42" fill="none" stroke="#4fc3f7" stroke-width="3"/>
+
+        <!-- focus brackets -->
+        <g class="lock" fill="none" stroke="#ffd54a" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M-70,-26 V-42 H-54"/>
+          <path d="M70,-26 V-42 H54"/>
+          <path d="M-70,24 V40 H-54"/>
+          <path d="M70,24 V40 H54"/>
+        </g>
+
+        <!-- the plane -->
+        <g class="tilt">
+          <rect x="-196" y="-1.5" width="150" height="3" rx="1.5" fill="url(#bn-trail)"/>
+          <path class="tint" d="M-40,-2 L-56,-27 L-41,-27 L-22,-10 Z"/>
+          <path class="tint" d="M-42,0 C-42,-10 -20,-13 10,-13 C30,-13 44,-6 46,0 C44,7 30,11 10,11 C-15,11 -36,8 -42,0 Z"/>
+          <path d="M-42,0 C-36,8 -15,11 10,11 C30,11 44,7 46,0 C30,4 -10,6 -42,0 Z" fill="#000000" opacity=".14"/>
+          <path d="M27,-11 C35,-9 41,-5 44,-1 L30,-1 Z" fill="#eaf6ff"/>
+          <circle cx="-12" cy="-4" r="3" fill="#eaf6ff"/>
+          <circle cx="0" cy="-4" r="3" fill="#eaf6ff"/>
+          <circle cx="12" cy="-4" r="3" fill="#eaf6ff"/>
+          <path class="tint" d="M-4,4 L-24,27 L-9,27 L16,4 Z"/>
+          <path d="M-4,4 L-24,27 L-9,27 L16,4 Z" fill="#000000" opacity=".22"/>
+          <circle class="tail" cx="-52" cy="-27" r="2.6" fill="#ff5a5a"/>
+        </g>
+
+        <!-- the card -->
+        <g class="card">
+          <g transform="translate(0 56)">
+            <path d="M-8,0 L0,-9 L8,0 Z" fill="#0d1733" opacity=".92"/>
+            <rect x="-128" y="0" width="256" height="56" rx="9" fill="#0d1733" opacity=".92"/>
+            <rect class="tint" x="-128" y="0" width="5" height="56" rx="2.5"/>
+            <text x="-110" y="23" font-size="15" font-weight="700" fill="#ffffff">DL 1830 · Airbus A321</text>
+            <text class="was" x="-110" y="44" font-size="13" fill="#ffb3d6">Likely Detroit Departure</text>
+            <text class="now" x="-110" y="44" font-size="13" fill="#9fdcfb">Detroit &#8594; Cleveland Center</text>
+          </g>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
