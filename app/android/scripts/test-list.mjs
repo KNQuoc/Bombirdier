@@ -405,6 +405,103 @@ try {
     assert.equal(view({ lat: 42.2, lon: -83.35 }, '28'), null); // Detroit: too far to show at all
   });
 
+  // ---- A real landing: N442BG (BGSU Seminole), left pattern to runway 18, 2026-11-21 ----
+  // Recorded from the app on the phone (docs/recordings/2026-11-21-n442bg-landing-rwy18.md):
+  // seconds, distance km and bearing from the phone at 41.37987, -83.64328, pressure altitude ft.
+  const R = await vite.ssrLoadModule('/src/pattern/runway.ts');
+  const feed = await vite.ssrLoadModule('/src/flights/feed.ts');
+  const LANDING = [[0,2.7,80,1375],[6,2.8,73,1376],[12,2.9,65,1375],[18,3.1,59,1408],[24,3.3,54,1392],[30,3.6,48,1318],[36,3.9,44,1240],[42,4.1,41,1246],[48,4.4,38,1194],[54,4.6,35,1174],[60,4.7,31,1113],[66,4.7,27,1053],[72,4.7,23,988],[78,4.5,20,993],[84,4.4,17,971],[90,4.3,14,948],[96,4.1,12,915],[102,3.9,11,855],[108,3.7,11,820],[114,3.5,12,755],[120,3.2,13,672],[126,3.0,14,657],[132,2.8,15,612],[138,2.6,17,567],[144,2.4,19,522],[150,2.2,20,444]];
+  const PHONE = { lat: 41.3798685, lon: -83.6432775 };
+  const fixes = LANDING.map(([t, d, b, alt]) => {
+    const r = (b * Math.PI) / 180;
+    return { t, alt, lat: PHONE.lat + (d * Math.cos(r)) / 111.32, lon: PHONE.lon + (d * Math.sin(r)) / (111.32 * Math.cos((PHONE.lat * Math.PI) / 180)) };
+  });
+  // Track and speed from one fix to the next, as the plane would have reported them.
+  const landing = fixes.map((f, i) => {
+    const [a, b] = [fixes[Math.max(0, i - 1)], fixes[Math.min(fixes.length - 1, i + 1)]];
+    const [dn, de] = [(b.lat - a.lat) * 111.32, (b.lon - a.lon) * 111.32 * Math.cos((f.lat * Math.PI) / 180)];
+    return plane({
+      id: 'a5b1c2', callsign: 'N442BG', registration: 'N442BG', typeCode: 'PA44', lat: f.lat, lon: f.lon,
+      trackDeg: ((Math.atan2(de, dn) * 180) / Math.PI + 360) % 360,
+      groundSpeedKt: Math.hypot(dn, de) / ((b.t - a.t) / 3600) / 1.852,
+      altitudeFt: f.alt, altitudeGeomFt: null, // pressure altitude only, about 310 ft low that night
+    });
+  });
+  /** The legs a tracker shows over the recording, without repeats. */
+  const legsShown = (runwayFor) => {
+    const tracker = C.createPatternTracker(WOOD_COUNTY);
+    const shown = [];
+    landing.forEach((p, i) => {
+      tracker.update([p], runwayFor(p, i), LANDING[i][0] * 1000);
+      const leg = tracker.legOf(p.id)?.leg ?? null;
+      if (leg !== shown.at(-1)) shown.push(leg);
+    });
+    return shown;
+  };
+
+  test('real landing: with runway 18 it reads downwind, base, final', () => {
+    assert.deepEqual(legsShown(() => '18'), ['downwind', 'base', 'final']);
+  });
+
+  test('real landing: the wide turn to base is not a pattern entry', () => {
+    // 54 s and 60 s in: turning west, 2.5 km past the threshold. Used to come out as "entry".
+    for (const i of [9, 10]) assert.notEqual(C.classify(landing[i], WOOD_COUNTY, '18').leg, 'entry', `fix ${i}`);
+    // The 45-degree entry abeam the runway still is one.
+    assert.equal(C.classify(onLeg.entry, WOOD_COUNTY, '28').leg, 'entry');
+  });
+
+  test('real landing: the runway in use is worked out from the plane itself', () => {
+    const detector = R.createRunwayDetector(WOOD_COUNTY);
+    const seen = landing.map((p, i) => detector.update([p], LANDING[i][0] * 1000));
+    assert.equal(seen[0], null); // one look is not enough
+    // Runway 18 from the downwind leg alone, within the first 20 seconds...
+    const firstAt = LANDING[seen.findIndex((s) => s)][0];
+    assert.ok(firstAt <= 20, `first detection at ${firstAt} s`);
+    assert.ok(seen.filter(Boolean).every((s) => s.ident === '18'), `only ever 18, got ${[...new Set(seen.filter(Boolean).map((s) => s.ident))]}`);
+    assert.equal(seen.find((s) => s).strong, false);
+    // ...and confirmed once it is on final.
+    assert.deepEqual({ ident: seen.at(-1).ident, by: seen.at(-1).by, strong: seen.at(-1).strong }, { ident: '18', by: 'N442BG', strong: true });
+    // So in Auto the whole pattern is labeled right, starting from the default of 28.
+    const auto = R.createRunwayDetector(WOOD_COUNTY);
+    assert.deepEqual(legsShown((p, i) => auto.update([p], LANDING[i][0] * 1000)?.ident ?? WOOD_COUNTY.defaultRunway).filter(Boolean), ['downwind', 'base', 'final']);
+  });
+
+  test('runway detector: a landing outranks a plane passing by on a downwind line', () => {
+    const detector = R.createRunwayDetector(WOOD_COUNTY);
+    const at = (planes, s) => detector.update(planes, s * 1000);
+    for (let s = 0; s <= 4; s += 2) at([{ ...onLeg.final, id: 'lander' }], s); // on final for 28
+    assert.deepEqual([detector.current().ident, detector.current().strong], ['28', true]);
+    // Minutes later something flies north past the east side at pattern altitude: 18's downwind line.
+    for (let s = 300; s <= 320; s += 2) at([{ ...landing[2], id: 'passer' }], s);
+    assert.equal(detector.current().ident, '28');
+    // But an actual landing on 18 changes it.
+    for (let s = 400; s <= 404; s += 2) at([{ ...landing[22], id: 'lander2' }], s);
+    assert.deepEqual([detector.current().ident, detector.current().strong], ['18', true]);
+    // Nothing around: it stays as it was.
+    at([], 500);
+    assert.equal(detector.current().ident, '18');
+  });
+
+  test('positions are not flown on from stale data', () => {
+    // 120 kt due north = 61.7 m per second.
+    const p = plane({ lat: 41.4, lon: -83.6, trackDeg: 0, groundSpeedKt: 120, altitudeFt: 1000, altitudeGeomFt: 1100, verticalRateFpm: -600 });
+    const viewer = { lat: 41.4, lon: -83.6 };
+    const movedM = (ageAtFetchS, sinceFetchS) => {
+      const [out] = feed.extrapolate([{ ...p, positionAgeS: ageAtFetchS }], 0, sinceFetchS * 1000, viewer);
+      return { m: Math.round((out.lat - p.lat) * 111_320), alt: Math.round(out.altitudeFt) };
+    };
+    close(movedM(0, 10).m, 617, 2, 'fresh position, 10 s after the fetch');
+    close(movedM(5, 10).m, 926, 2, 'already 5 s old when fetched: 15 s of flying');
+    close(movedM(null, 10).m, 617, 2, 'older data without the field');
+    // Lost from coverage: every poll returns the same position, older each time. It stops after a minute's worth.
+    close(movedM(45, 5).m, 3087, 2, '50 s of flying');
+    close(movedM(58, 5).m, 3704, 2, 'capped at 60 s');
+    close(movedM(300, 5).m, 3704, 2, 'long gone: still 60 s worth');
+    // Altitude is carried forward for 20 s at most: -600 fpm is 200 ft, however stale the position.
+    assert.equal(movedM(0, 10).alt, 900);
+    assert.equal(movedM(300, 5).alt, 800);
+  });
+
   const dataArg = process.argv.indexOf('--data');
   if (dataArg > 0) {
     const raw = JSON.parse(readFileSync(process.argv[dataArg + 1], 'utf-8'));

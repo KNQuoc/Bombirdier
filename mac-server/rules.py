@@ -103,6 +103,9 @@ def quick(text: str, context: dict) -> dict | None:
         if runway:
             return _reply(f"Runway {' '.join(runway)} in use.", {"type": "set_runway", "runway": runway})
 
+    if re.fullmatch(r"(?:auto|automatic) runway|runway (?:auto|automatic)|(?:detect|figure out|work out|find)(?: the)? (?:active )?runway(?: in use)?(?: again| yourself| from(?: the)? traffic)?|(?:set|switch|put)(?: the)? (?:active )?runway (?:back )?(?:to|on) auto(?:matic)?", t):
+        return _reply("Runway back to automatic.", {"type": "set_runway", "runway": "auto"})
+
     m = re.fullmatch(rf"(?:show|list|find|display|where are|give me)(?: me)?(?: all)?(?: of)?(?: the)? ({_KINDS})", t)
     if m:
         return _reply("", {"type": "show_list", "filter": dict(KIND_WORDS[m.group(1)])})

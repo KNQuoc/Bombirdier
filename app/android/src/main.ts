@@ -31,7 +31,7 @@ import { declinationCorrectionDeg, fieldModel, updateFieldModel } from './compas
 import { createCompassCalibration } from './compass-calibration';
 import { WOOD_COUNTY } from './airports/1g0';
 import { mslFtToEllipsoidM, runwayEnd } from './airports/airport';
-import { loadAppSettings, saveAppSettings } from './app-settings';
+import { AUTO_RUNWAY, loadAppSettings, saveAppSettings } from './app-settings';
 import type { AppSettings } from './app-settings';
 import { cachedRoute, cachedRouteInfo, lookupRoutes } from './flights/adsb';
 import { fixedPosition, watchPosition } from './flights/gps';
@@ -42,6 +42,7 @@ import { engineKind } from './list/kind';
 import { createList } from './list/list';
 import { createPatternTracker, legCode, legLabel } from './pattern/classify';
 import { createAirportView } from './pattern/overlay';
+import { createRunwayDetector } from './pattern/runway';
 import { createAssistant } from './voice/assistant';
 import { requestMicrophone } from './voice/recorder';
 import { createServer } from './voice/server';
@@ -155,7 +156,10 @@ async function initSettings() {
   if (settings.radiusKm != null) settings.radiusKm = Math.min(MAX_AR_RADIUS_KM, settings.radiusKm);
   radiusInput.value = settings.radiusKm == null ? '' : String(settings.radiusKm);
   wideSelect.value = appSettings.wideTraffic;
-  runwaySelect.replaceChildren(...AIRPORT.runways.map((r) => new Option(`${r.ident} (${r.patternSide} pattern)`, r.ident)));
+  runwaySelect.replaceChildren(
+    new Option('Auto (from traffic)', AUTO_RUNWAY),
+    ...AIRPORT.runways.map((r) => new Option(`${r.ident} (${r.patternSide} pattern)`, r.ident)),
+  );
   runwaySelect.value = appSettings.activeRunway;
   serverInput.value = appSettings.serverUrl;
   tokenInput.value = appSettings.serverToken;
@@ -197,6 +201,7 @@ function readSettingsFromForm() {
     ...appSettings,
     wideTraffic: wideSelect.value as WideMode,
     activeRunway: runwaySelect.value || appSettings.activeRunway,
+    activeRunwayChosen: (runwaySelect.value || appSettings.activeRunway) !== AUTO_RUNWAY,
     serverUrl: /^https?:\/\//.test(serverUrl) ? serverUrl : 'http://localhost:8787',
     serverToken: tokenInput.value.trim(),
   };
@@ -237,14 +242,32 @@ function viewerAltM(): number {
   return gps?.get()?.altM ?? FALLBACK_GROUND_M + EYE_HEIGHT_M;
 }
 
-/** Which pattern leg each nearby plane is on, with hysteresis. Follows the Active runway setting. */
+/** Which pattern leg each nearby plane is on, with hysteresis. Follows the runway in use. */
 const pattern = createPatternTracker(AIRPORT);
 const airportView = createAirportView(AIRPORT);
+/** Works out the runway in use from landings, takeoffs and downwind legs (used when the setting is Auto). */
+const runwayDetector = createRunwayDetector(AIRPORT);
+
+/**
+ * The runway everything is drawn and named for: the one set by hand, or in Auto the one the traffic
+ * has shown, or until then the calm-wind runway.
+ */
+function runwayInUse(): string {
+  if (appSettings.activeRunway !== AUTO_RUNWAY) return appSettings.activeRunway;
+  return runwayDetector.current()?.ident ?? AIRPORT.defaultRunway;
+}
+
+/** How the runway in use was arrived at, for the info line and the assistant. */
+function runwaySource(): string {
+  if (appSettings.activeRunway !== AUTO_RUNWAY) return 'set by hand';
+  const seen = runwayDetector.current();
+  return seen ? `from ${seen.by} ${seen.strong ? 'landing or taking off' : 'on downwind'}` : 'assumed: calm-wind runway, no pattern traffic seen yet';
+}
 
 /** "Right downwind · RWY 28" for a plane in the pattern, else null. */
 function legNote(id: string): string | null {
   const leg = pattern.legOf(id)?.leg;
-  return leg ? legLabel(leg, runwayEnd(AIRPORT, appSettings.activeRunway)) : null;
+  return leg ? legLabel(leg, runwayEnd(AIRPORT, runwayInUse())) : null;
 }
 
 /**
@@ -305,7 +328,7 @@ function brief(p: Plane) {
 /** Everything the assistant should know about this moment. Built when a question is asked, not per frame. */
 function voiceContext() {
   const all = traffic?.all() ?? [];
-  const runway = runwayEnd(AIRPORT, appSettings.activeRunway);
+  const runway = runwayEnd(AIRPORT, runwayInUse());
   const viewer = gps?.get() ?? null;
   const listView = list.view();
   return {
@@ -319,6 +342,7 @@ function voiceContext() {
       ident: AIRPORT.ident,
       name: AIRPORT.name,
       activeRunway: runway.ident,
+      runwaySource: runwaySource(),
       patternSide: runway.patternSide,
       tpaFtMsl: AIRPORT.tpaFtMsl,
       elevationFt: AIRPORT.elevationFt,
@@ -350,8 +374,8 @@ const assistant = createAssistant({
     list,
     setRadarRangeKm: (km) => (radarRangeKm = km),
     setRunway: (ident) => {
-      if (!AIRPORT.runways.some((r) => r.ident === ident)) return false;
-      appSettings = { ...appSettings, activeRunway: ident };
+      if (ident !== AUTO_RUNWAY && !AIRPORT.runways.some((r) => r.ident === ident)) return false;
+      appSettings = { ...appSettings, activeRunway: ident, activeRunwayChosen: ident !== AUTO_RUNWAY };
       saveAppSettings(appSettings);
       runwaySelect.value = ident;
       return true;
@@ -391,7 +415,7 @@ function voiceInfo(): string {
   if (lastExchange && t) {
     parts.push(`last: ${lastExchange.source} ${t.totalMs ?? '?'} ms (whisper ${t.whisperMs ?? 0}${t.llmMs ? `, llm ${t.llmMs}` : ''}${t.ttsMs ? `, voice ${t.ttsMs}` : ''})`);
   }
-  return parts.join(' · ') + tilted;
+  return parts.join(' · ') + tilted + ` · RWY ${runwayInUse()} (${runwaySource()})`;
 }
 
 /** Per-frame: compute the visible FOV and draw the HUD canvas in both eyes. */
@@ -416,17 +440,24 @@ function frame() {
   const feedState = traffic?.near.get();
   // Pattern legs: classified from the AR feed's planes, written onto their cards and the radar.
   const nearPlanes = feedState?.planes ?? [];
-  pattern.update(nearPlanes, appSettings.activeRunway, Date.now());
+  const seenRunway = runwayDetector.current()?.ident;
+  const detected = runwayDetector.update(nearPlanes, Date.now());
+  if (detected && detected.ident !== seenRunway && appSettings.activeRunway === AUTO_RUNWAY) {
+    console.info(`[pattern] runway ${detected.ident} in use (${runwaySource()})`);
+    showToast(`Runway ${detected.ident} in use (${detected.by})`);
+  }
+  const activeRunway = runwayInUse();
+  pattern.update(nearPlanes, activeRunway, Date.now());
   const legCodes: Record<string, string> = {};
   const planes = nearPlanes.map((p) => {
     const leg = pattern.legOf(p.id)?.leg;
     if (!leg) return p;
     const code = legCode(leg);
     if (code) legCodes[p.id] = code;
-    return { ...p, note: legLabel(leg, runwayEnd(AIRPORT, appSettings.activeRunway)) };
+    return { ...p, note: legLabel(leg, runwayEnd(AIRPORT, activeRunway)) };
   });
   const viewer = gps?.get() ?? null;
-  const field = viewer ? airportView(viewer, appSettings.activeRunway) : null;
+  const field = viewer ? airportView(viewer, activeRunway) : null;
   const listView = list.view();
   const opened = listView?.opened ?? null;
   const hud: HudState = {

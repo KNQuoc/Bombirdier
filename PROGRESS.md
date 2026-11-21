@@ -47,15 +47,17 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 ## Phase 2: traffic-pattern overlay at Wood County (1G0)
 
 - [x] `src/airports/1g0.ts`: runways, pattern sides, TPA, elevation. Checked against FAA data effective 29 Oct 2026 (via AirNav): 10 left / 28 right / 18 left / 36 right, TPA 1,700 ft MSL, calm-wind runway 28 all confirmed; thresholds use the FAA coordinates
-- [x] Active runway setting (default 28)
+- [x] Active runway setting. Default is now **Auto**: the runway in use is worked out from the traffic (a plane on final or climbing out decides it; a plane level on a downwind suggests it earlier), starting from 28. A runway can still be forced by hand or by voice
 - [x] `src/pattern/geometry.ts`: pattern legs as lines (0.75 nm offset and extensions; level at TPA, then 800 ft AGL turning base, 500 ft turning final)
 - [x] `src/pattern/classify.ts` with hysteresis (a new leg has to win 2 checks, 2 s apart) + unit tests (one plane per leg, exclusions, runway 10 mirror, tracker)
 - [x] Radar: runways, dashed pattern, leg labels (DW, B, F, UW, XW); near the field it zooms to 5 km so the pattern is visible, with faint rim dots for traffic beyond
 - [x] Card: "Right downwind · RWY 28" (also in a plane opened from the list)
 - [x] Stretch: pattern drawn in the sky as a dashed line
 - [x] Fallback viewer altitude corrected to an ellipsoid height (171 m, was 205 m MSL), so near objects like the pattern sit at the right angle before GPS altitude arrives
-- [ ] From the first live landing (N442BG, runway 18, 2026-11-21; see `docs/recordings/`): detect the runway in use from traffic (the app had 28 set and labeled everything wrong); stop the 45° entry rule firing during a wide base turn; count the age of each position (`seen_pos`) so a plane lost near the ground isn't moved on and run down to 0 ft
-- [ ] Tune the classifier's numbers on more live pattern traffic (replayed with runway 18, that landing came out downwind → base → final)
+- [x] From the first live landing (N442BG, runway 18, 2026-11-21; see `docs/recordings/`), all three fixed: the runway in use is detected from traffic; the 45° entry rule no longer fires during a wide base turn; the age of each position (`seen_pos`) is counted, so a plane lost near the ground is no longer flown on from the same old report, and altitude is carried forward 20 s at most
+- [x] That landing is now a regression test: replayed in Auto from the default of 28, the app settles on runway 18 within 20 s and shows downwind → base → final
+- [ ] See the fixes work on the next live pattern traffic (the replay proves the logic; it has not been watched live since)
+- [ ] Tune the classifier's numbers on more live pattern traffic (one landing so far)
 - [ ] Done: BGSU planes in the circuit get the right leg most of the time (needs a flying day at the field)
 
 ## Phase 3: AI voice assistant
@@ -117,6 +119,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-21 · phase 2 · Runway in use detected from traffic (Auto is the default), entry rule fixed, stale positions no longer extrapolated. The recorded N442BG landing is a regression test: 25 app tests, 108 server checks.
 - 2026-11-21 · phase 3 · Flight progress, arrival estimates and live weather added to the assistant; checked on real flights (JIA5240 CLT–SBN on approach, ASA829 JFK–HNL in cruise).
 - 2026-11-21 · on the phone · First run on Kien's Pixel 7: app, GPS, traffic, USB link to the Mac, voice (after fixing speech detection). Watched a BGSU Seminole (N442BG) fly a left pattern and land on runway 18: the app had runway 28 set and labeled it wrong. Recording in `docs/recordings/`.
 - 2026-11-20 · phase 3 · Voice assistant built: Mac server (Whisper, instant rules, Aivana, Kokoro voice), phone side (head-tilt, recording, actions, playback), access checks. Verified on the Mac with real audio and in desktop dev mode; not yet on a phone.

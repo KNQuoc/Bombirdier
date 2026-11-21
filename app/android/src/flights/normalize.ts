@@ -85,6 +85,7 @@ export function normalize(ac: RawAircraft, centerLat: number, centerLon: number)
     groundSpeedKt: num(ac.gs),
     trackDeg: num(ac.track),
     verticalRateFpm,
+    positionAgeS: num(ac.seen_pos),
     distanceKm: round(haversineKm(centerLat, centerLon, lat, lon), 3),
     bearingDeg: round(bearingDeg(centerLat, centerLon, lat, lon), 2),
   };

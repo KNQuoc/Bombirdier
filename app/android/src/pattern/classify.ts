@@ -35,7 +35,7 @@ const CROSS_TOL_DEG = 50; // crosswind, base
 const fit = (errDeg: number, tolDeg: number) => Math.max(0, 1 - Math.abs(errDeg) / tolDeg);
 
 /** Altitude above mean sea level in feet: GPS altitude if the plane sends it (pressure altitude can be off by hundreds of feet). */
-function altitudeMslFt(p: Plane, airport: Airport): number | null {
+export function altitudeMslFt(p: Plane, airport: Airport): number | null {
   if (p.altitudeGeomFt != null) return p.altitudeGeomFt - airport.geoidSeparationM / M_PER_FT;
   return p.altitudeFt;
 }
@@ -71,8 +71,10 @@ export function classify(p: Plane, airport: Airport, runwayIdent: string): LegRe
   if (y >= w - 800 && y <= w + 1000 && x >= -3500 && x <= L + 3500) add('downwind', off(180), STRAIGHT_TOL_DEG, 0.55);
   // On the approach side, coming back toward the runway's centerline.
   if (x >= -3800 && x <= 150 && y >= -150 && y <= w + 1000) add('base', off(-90), CROSS_TOL_DEG, 0.5);
-  // Outside the downwind, cutting in at about 45 degrees: the standard pattern entry.
-  if (y > w + 300) add('entry', off(-135), 30, 0.55);
+  // Outside the downwind and abeam the runway, cutting in at about 45 degrees: the standard pattern
+  // entry. Not past the approach end: a plane out there on that heading is in a wide turn from
+  // downwind to base (seen on a real landing, 2026-11-21).
+  if (y > w + 300 && x >= -500 && x <= L + 500) add('entry', off(-135), 30, 0.55);
 
   if (candidates.length) return candidates.reduce((a, b) => (b.confidence > a.confidence ? b : a));
 

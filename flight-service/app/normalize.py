@@ -152,6 +152,10 @@ def normalize(ac: dict, center_lat: float, center_lon: float) -> dict | None:
         "groundSpeedKt": _num(ac.get("gs")),
         "trackDeg": _num(ac.get("track")),
         "verticalRateFpm": vertical_rate,
+        # Seconds since this position was received (readsb seen_pos). A plane that drops out of
+        # coverage keeps being listed for a while with its last position. Keep in sync with
+        # app/android/src/flights/normalize.ts.
+        "positionAgeS": _num(ac.get("seen_pos")),
         "distanceKm": round(haversine_km(center_lat, center_lon, lat, lon), 3),
         "bearingDeg": round(bearing_deg(center_lat, center_lon, lat, lon), 2),
     }

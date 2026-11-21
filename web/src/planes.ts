@@ -25,6 +25,11 @@ export type Plane = {
   trackDeg: number | null;
   /** Vertical rate in ft/min (+ = climbing), from ADS-B baro_rate. Optional for older data. */
   verticalRateFpm?: number | null;
+  /**
+   * How old the position already was when the data was fetched, in seconds (ADS-B seen_pos). A plane
+   * that has dropped out of coverage is still listed for a while with its last known position.
+   */
+  positionAgeS?: number | null;
   distanceKm: number;
   bearingDeg: number;
   offsetDeg?: number;

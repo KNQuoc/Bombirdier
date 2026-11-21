@@ -62,7 +62,7 @@ def context_text(ctx: dict) -> str:
         where = f"{miles(airport.get('distanceKm'))} from" if (airport.get("distanceKm") or 0) > 1 else "at"
         lines.append(
             f"User is {where} {airport.get('name', 'the airport')} ({airport.get('ident', '')}). Runway in use: {airport.get('activeRunway')}"
-            f" ({airport.get('patternSide')} traffic), pattern altitude {airport.get('tpaFtMsl')} ft, field elevation {airport.get('elevationFt')} ft."
+            f" ({airport.get('patternSide')} traffic; {airport.get('runwaySource') or 'set in the app'}), pattern altitude {airport.get('tpaFtMsl')} ft, field elevation {airport.get('elevationFt')} ft."
         )
     focus = ctx.get("focus")
     lines.append(f"Looking at: {_plane_line(focus)}" if focus else "Looking at: no plane in the middle of the view.")

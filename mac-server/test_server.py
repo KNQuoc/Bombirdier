@@ -57,6 +57,8 @@ check("runway spoken", actions("We're using runway one zero."), [{"type": "set_r
 check("runway digits", actions("switch to runway 28"), [{"type": "set_runway", "runway": "28"}])
 check("runway active", actions("Runway three six is active"), [{"type": "set_runway", "runway": "36"}])
 check("no such runway", actions("switch to runway 27"), None)
+check("runway auto", actions("Set the runway back to automatic"), [{"type": "set_runway", "runway": "auto"}])
+check("detect runway", actions("Detect the runway again."), [{"type": "set_runway", "runway": "auto"}])
 check("helicopters", actions("Show me all the helicopters."), [{"type": "show_list", "filter": {"kind": "helicopters"}}])
 check("bgsu", actions("Show me the BGSU planes"), [{"type": "show_list", "filter": {"fleet": "bgsu"}}])
 check("trainers", actions("where are the trainers"), [{"type": "show_list", "filter": {"fleet": "bgsu"}}])
@@ -101,7 +103,7 @@ check("at most four", len(tools.validate_actions([{"type": "hide_list"}] * 9)), 
 
 text = context_text({**CTX, "airport": {"ident": "1G0", "name": "Wood County Regional", "activeRunway": "28", "patternSide": "right", "tpaFtMsl": 1700, "elevationFt": 673, "distanceKm": 0.3},
                      "bgsu": [ARCHER], "traffic": {"total": 358, "radiusNm": 250}, "list": {"open": False}})
-check("context: airport", "Runway in use: 28 (right traffic)" in text, True)
+check("context: airport", "Runway in use: 28 (right traffic; set in the app)" in text, True)
 check("context: focus", "Looking at: N337BG, BGSU, Piper PA-28 Archer, 1,700 feet, 95 knots, less than a mile north, Right downwind · RWY 28" in text, True)
 check("context: others exclude the focus", "Also in view: SWA1234, Boeing 737-800, Southwest Airlines, MDW to CLE, 36,000 feet descending, 30 miles south" in text, True)
 check("context: empty is fine", context_text({}).startswith("Looking at: no plane"), True)

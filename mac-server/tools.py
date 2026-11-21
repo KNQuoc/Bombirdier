@@ -11,7 +11,7 @@ Phase 5 adds the radio tools (connect_feed, radio_audio, transcript, ...) to thi
 
 LIST_KINDS = ["jets", "props", "helicopters", "military", "medical", "emergencies"]
 SORT_KEYS = ["distance", "altitude", "speed"]
-RUNWAYS = ["10", "28", "18", "36"]
+RUNWAYS = ["10", "28", "18", "36", "auto"]  # "auto" = let the app work it out from the traffic again
 
 FILTER_SCHEMA = {
     "type": "object",
@@ -115,7 +115,7 @@ def describe_for_prompt() -> str:
 - close_plane: back from an opened plane to the list
 - count {filter}: for "how many ...?" or "any ...?" questions about traffic. The app counts and says the number.
 - radar_range {nm}: zoom the radar to that many nautical miles; 0 = automatic
-- set_runway {runway: 10|28|18|36}: change the runway in use at Wood County
+- set_runway {runway: 10|28|18|36|auto}: set the runway in use at Wood County by hand, or "auto" to let the app work it out from the traffic again
 
 Filter fields (all optional): fleet "bgsu" (BGSU's trainers), kind (jets, props, helicopters, military, medical,
 emergencies), airline (ICAO code: Southwest SWA, Delta DAL, American AAL, United UAL, FedEx FDX, UPS UPS,

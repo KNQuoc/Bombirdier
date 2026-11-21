@@ -7,17 +7,25 @@ import type { WideMode } from './traffic/wide';
 export type AppSettings = {
   /** The 250 nm list data: always, only on Wi-Fi, or never (the list then shows the AR planes). */
   wideTraffic: WideMode;
-  /** Runway in use at Wood County ("28"): decides which traffic pattern is drawn and how legs are named. */
+  /**
+   * Runway in use at Wood County: decides which traffic pattern is drawn and how legs are named.
+   * "auto" = worked out from the traffic (pattern/runway.ts), starting from the calm-wind runway;
+   * or a runway ("28") to force it.
+   */
   activeRunway: string;
+  /** True once the user (or a voice command) has picked a runway by hand. */
+  activeRunwayChosen?: boolean;
   /** Where the Mac server (voice assistant) is. The default works over USB after `adb reverse tcp:8787 tcp:8787`. */
   serverUrl: string;
   /** Shared secret the Mac server asks for over Wi-Fi (BOMBIRDIER_TOKEN in mac-server/.env). Not needed over USB. */
   serverToken: string;
 };
 
+export const AUTO_RUNWAY = 'auto';
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   wideTraffic: 'on',
-  activeRunway: WOOD_COUNTY.defaultRunway,
+  activeRunway: AUTO_RUNWAY,
   serverUrl: 'http://localhost:8787',
   serverToken: '',
 };
@@ -30,7 +38,11 @@ export function loadAppSettings(): AppSettings {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Partial<AppSettings>;
     return {
       wideTraffic: WIDE_MODES.includes(saved.wideTraffic as WideMode) ? saved.wideTraffic! : DEFAULT_APP_SETTINGS.wideTraffic,
-      activeRunway: WOOD_COUNTY.runways.some((r) => r.ident === saved.activeRunway) ? saved.activeRunway! : DEFAULT_APP_SETTINGS.activeRunway,
+      // A runway saved before "auto" existed was the old default (28), not a choice: only an explicit
+      // choice made since (activeRunwayChosen) is kept.
+      activeRunway:
+        saved.activeRunwayChosen && WOOD_COUNTY.runways.some((r) => r.ident === saved.activeRunway) ? saved.activeRunway! : DEFAULT_APP_SETTINGS.activeRunway,
+      activeRunwayChosen: saved.activeRunwayChosen === true,
       serverUrl: typeof saved.serverUrl === 'string' && /^https?:\/\//.test(saved.serverUrl) ? saved.serverUrl : DEFAULT_APP_SETTINGS.serverUrl,
       serverToken: typeof saved.serverToken === 'string' ? saved.serverToken.slice(0, 200) : '',
     };

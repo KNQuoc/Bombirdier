@@ -22,8 +22,15 @@ const SLOW_ANSWER_MS = 3000;
 /** How often to check for the first GPS fix. */
 const GPS_WAIT_POLL_MS = 1000;
 
-/** Between polls, airborne planes are moved along their track (dead reckoning), up to this long. */
+/**
+ * Between polls, airborne planes are moved along their track (dead reckoning), for at most this long
+ * after their position was actually received. The age of the position counts, not just the time
+ * since the fetch: a plane that has dropped out of coverage (landing, behind terrain) keeps coming
+ * back from adsb.lol with the same old position, and must not be flown on from it again each poll.
+ */
 const MAX_EXTRAPOLATE_S = 60;
+/** Climb and descent rates change quickly: altitude is carried forward for less time than position. */
+const MAX_ALTITUDE_EXTRAPOLATE_S = 20;
 /** Recompute extrapolated positions at most this often (get() is called every frame). */
 const EXTRAPOLATE_EVERY_MS = 100;
 const KM_PER_DEG_LAT = 111.32;
@@ -35,8 +42,10 @@ const KM_PER_NM = 1.852;
  * Planes on the ground or without speed/track stay put. Flat-earth step: fine for < ~15 km moves.
  */
 export function extrapolate(planes: Plane[], fetchedAt: number, now: number, viewer: LatLon): Plane[] {
-  const hours = Math.min(MAX_EXTRAPOLATE_S, Math.max(0, (now - fetchedAt) / 1000)) / 3600;
+  const sinceFetchS = Math.max(0, (now - fetchedAt) / 1000);
   return planes.map((p) => {
+    const ageS = sinceFetchS + Math.max(0, p.positionAgeS ?? 0);
+    const hours = Math.min(MAX_EXTRAPOLATE_S, ageS) / 3600;
     let { lat, lon, altitudeFt, altitudeGeomFt } = p;
     if (!p.onGround && p.groundSpeedKt && p.trackDeg != null) {
       const km = p.groundSpeedKt * KM_PER_NM * hours;
@@ -47,7 +56,7 @@ export function extrapolate(planes: Plane[], fetchedAt: number, now: number, vie
     // Climb/descend too, so the sky marker stays on the plane between polls (a 1,800 fpm descent
     // is ~900 ft in a 30 s gap). Never below 0.
     if (!p.onGround && p.verticalRateFpm) {
-      const ft = p.verticalRateFpm * hours * 60;
+      const ft = (p.verticalRateFpm * Math.min(MAX_ALTITUDE_EXTRAPOLATE_S, ageS)) / 60;
       if (altitudeFt != null) altitudeFt = Math.max(0, altitudeFt + ft);
       if (altitudeGeomFt != null) altitudeGeomFt = Math.max(0, altitudeGeomFt + ft);
     }
