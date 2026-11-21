@@ -38,6 +38,13 @@ export type Plane = {
   emergency?: string | null;
   military?: boolean;
   medical?: boolean;
+  /**
+   * Optional label set by the app for planes it wants to single out (e.g. a home fleet). Shown on
+   * the card next to any status tag.
+   */
+  tag?: string | null;
+  /** Optional CSS color for such a plane's icon, bracket and radar dot when it has no special status. */
+  accent?: string | null;
 };
 
 export type LatLon = {

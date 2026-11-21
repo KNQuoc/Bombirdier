@@ -66,6 +66,11 @@ export function statusTag(p: Plane): string | null {
   }
 }
 
+/** Card tag line: the status tag and/or the app's own label for the plane, e.g. "ON THE GROUND · BGSU". */
+export function cardTag(p: Plane): string | null {
+  return [statusTag(p), p.tag].filter(Boolean).join(' · ') || null;
+}
+
 /** Short identifier: "DL 1234", else raw callsign, else registration, else hex id. */
 export function flightLabel(p: Plane): string {
   const cs = p.callsign?.trim();

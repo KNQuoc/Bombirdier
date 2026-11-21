@@ -5,7 +5,7 @@
 // are the actions the voice assistant will call in Phase 3: show/hide, setFilter, clearFilter, sort,
 // page, openRow, openPlane, count.
 
-import { cardLines, statusTag } from '@web/format';
+import { cardLines, cardTag } from '@web/format';
 import { elevationDeg } from '@web/geo';
 import type { Plane } from '@web/planes';
 import { DEV_PRESETS, PAGE_SIZE, applyFilter, filterChips, matches, pageCount, sanitizeFilter } from './filter';
@@ -26,7 +26,7 @@ export type ListRow = {
 
 export type OpenedPlane = {
   plane: Plane;
-  /** Status tag ("MEDICAL"), or null. */
+  /** Status and/or fleet tag ("MEDICAL", "BGSU"), or null. */
   tag: string | null;
   /** Title, type and route, flight data, then where it is. */
   lines: string[];
@@ -159,7 +159,7 @@ export function createList(deps: ListDeps) {
     const lost = !now;
     const inAr = !lost && plane.distanceKm <= deps.arRadiusKm();
     const lines = [title, type, flight, lost ? 'No longer in range' : whereIs(plane, viewerAltM)].filter(Boolean);
-    return { plane, tag: statusTag(plane), lines, inAr, lost };
+    return { plane, tag: cardTag(plane), lines, inAr, lost };
   }
 
   function view(): ListView | null {

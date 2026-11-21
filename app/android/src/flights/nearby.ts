@@ -4,6 +4,7 @@
 import type { Plane } from '@web/planes';
 import { cachedRoute, fetchPoint, lookupRoutes } from './adsb';
 import type { PointResult, Route } from './adsb';
+import { tagFleet } from '../fleet/bgsu';
 import { normalize } from './normalize';
 import type { RawAircraft } from './normalize';
 
@@ -46,7 +47,7 @@ export async function livePlanes(
 ): Promise<{ planes: Plane[]; problem: PointResult['problem']; fetchedAt: number }> {
   const radius = radiusKm ?? DEFAULT_RADIUS_KM;
   const { ac, problem, fetchedAt } = await fetchPoint(lat, lon, radius / KM_PER_NM + 1); // +1 nm margin, trimmed by km below
-  const planes = buildPlanes(ac, lat, lon, radius);
+  const planes = tagFleet(buildPlanes(ac, lat, lon, radius));
   applyRoutes(planes, cachedRoute);
   startRouteLookup(planes);
   return { planes, problem, fetchedAt };
@@ -70,7 +71,7 @@ export async function widePlanes(
   lon: number,
 ): Promise<{ planes: Plane[]; problem: PointResult['problem']; fetchedAt: number; bytes: number }> {
   const { ac, problem, fetchedAt, bytes } = await fetchPoint(lat, lon, WIDE_RADIUS_NM);
-  const planes = buildPlanes(ac, lat, lon, WIDE_RADIUS_NM * KM_PER_NM);
+  const planes = tagFleet(buildPlanes(ac, lat, lon, WIDE_RADIUS_NM * KM_PER_NM));
   applyRoutes(planes, cachedRoute);
   return { planes, problem, fetchedAt, bytes };
 }

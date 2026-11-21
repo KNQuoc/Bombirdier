@@ -38,7 +38,10 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 - [x] ☰ button next to ⚙; tap a row, ▲▼ or swipe to page
 - [x] Dev keys: `L`, `PageUp`/`PageDown`, `F` (plus `1`–`8` open row, `Esc` back, `R` radar range), and `?dev=1&at=lat,lon` for a fixed position
 - [x] Radar ranges up to 463 km; radar follows the filtered list; optional `HudState.radarRangeKm`
-- [x] `npm test`: 11 unit tests for filters, sorting, jet/prop classification, plane lookup, route plausibility
+- [x] `npm test`: 13 unit tests for filters, sorting, jet/prop classification, BGSU matching, plane lookup, route plausibility
+- [x] BGSU home fleet (added at Kien's request, not in the original plan): `BGSU` tag on the card and in the list, orange icon/bracket/radar dot, `fleet: 'bgsu'` list filter (includes planes on the ground). Seen live: N337BG (Archer) and N442BG (Seminole)
+- [ ] Confirm the BGSU fleet's tail numbers with Kien (matching is by N<digits>BG + propeller type for now)
+- [ ] Daytime check that adsb.lol sees BGSU planes low in the pattern and on the ground at 1G0
 - [ ] Done: hundreds of planes in the list in daytime, AR still ≤ 50 km, route service only for near/opened planes (all seen on desktop at night with 372 planes; not yet tried on the phone or in daytime)
 
 ## Phase 2: traffic-pattern overlay at Wood County (1G0)
@@ -101,6 +104,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 Newest first. One line per meaningful change: date, phase, what landed.
 
+- 2026-11-20 · phase 1 · BGSU planes are tagged, colored orange and filterable; trainer type names added (P28A = Piper PA-28 Archer, PA44 = Piper PA-44 Seminole). Checked on a live BGSU Archer (N337BG) 25 km west of 1G0.
+- 2026-11-20 · data check · adsb.lol vs adsb.fi over 250 nm: 410 shared planes, positions within ~100 m (median), altitudes within 50 ft, callsigns identical.
 - 2026-11-20 · phase 1 · Two-speed traffic (50 km AR feed + 250 nm wide feed), list view with filters/sorting/paging/open-plane, ☰ button, wider radar, on-demand routes from adsb.lol route files. Verified in desktop dev mode on live traffic; APK builds. Phone and daytime checks open.
 - 2026-11-20 · phase 0 · Android build set up on the Mac (Homebrew `openjdk@21` + `android-commandlinetools`, SDK platform 36); `gradlew` made executable; debug APK builds. Not yet installed on a phone.
 - 2026-11-20 · phase 0 · Sky-placement patch applied as written; app renamed to Bombirdier; type checks and TS/Python parity pass; verified in desktop dev mode on live traffic near 1G0. APK build and outdoor test still open.

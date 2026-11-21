@@ -37,6 +37,12 @@ TYPE_NAMES = {
     "C172": "Cessna 172 Skyhawk", "C182": "Cessna 182 Skylane", "C152": "Cessna 152",
     "C208": "Cessna 208 Caravan", "C210": "Cessna 210 Centurion", "SR22": "Cirrus SR22",
     "SR20": "Cirrus SR20", "PA28": "Piper PA-28 Cherokee", "PA32": "Piper PA-32",
+    # Trainers and common GA types by their real ICAO designators (P28A is what BGSU's Archers
+    # transmit; "PA28" above is not a designator ADS-B data uses).
+    "P28A": "Piper PA-28 Archer", "P28B": "Piper PA-28 Dakota", "P28R": "Piper PA-28R Arrow",
+    "PA44": "Piper PA-44 Seminole", "PA34": "Piper PA-34 Seneca", "P32R": "Piper PA-32R Saratoga",
+    "DA40": "Diamond DA40", "DA42": "Diamond DA42 Twin Star", "C150": "Cessna 150",
+    "M20P": "Mooney M20",
     "PA46": "Piper PA-46 Malibu", "BE20": "Beechcraft King Air 200", "BE35": "Beechcraft Bonanza",
     "BE36": "Beechcraft Bonanza", "BE58": "Beechcraft Baron", "PC12": "Pilatus PC-12",
     "C56X": "Cessna Citation Excel", "C68A": "Cessna Citation Latitude",

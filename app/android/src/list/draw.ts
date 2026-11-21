@@ -6,7 +6,7 @@
 
 import { aircraftStatus } from '@web/format';
 import { signedDiffDeg } from '@web/geo';
-import { COLORS, FONT, STATUS_COLORS, fs, roundRect } from '@web/hud';
+import { COLORS, FONT, STATUS_COLORS, fs, planeColor, roundRect } from '@web/hud';
 import type { Plane } from '@web/planes';
 import { PAGE_SIZE } from './filter';
 import { rowName } from './list';
@@ -161,7 +161,8 @@ function drawRows(ctx: CanvasRenderingContext2D, L: Layout, view: ListView, head
     const y = r.y + r.h / 2;
     const p = row.plane;
     const status = aircraftStatus(p);
-    const nameColor = status === 'normal' ? COLORS.text : STATUS_COLORS[status];
+    // White for ordinary planes; status colors and the home fleet's color stand out.
+    const nameColor = status === 'normal' && !p.accent ? COLORS.text : planeColor(p, status);
     ctx.save();
     ctx.globalAlpha = status === 'emergency' && blinkOff ? 0.35 : row.belowHorizon ? BELOW_HORIZON_ALPHA : 1;
     const size = fs(10.5);
@@ -192,7 +193,7 @@ function drawOpened(ctx: CanvasRenderingContext2D, L: Layout, view: ListView) {
   const o = view.opened!;
   const { x, w } = L.header;
   const status = aircraftStatus(o.plane);
-  const accent = status === 'normal' ? COLORS.focus : STATUS_COLORS[status];
+  const accent = status === 'normal' ? (o.plane.accent ?? COLORS.focus) : STATUS_COLORS[status];
   let y = L.panel.y + 6 + fs(10) / 2;
   text(ctx, '‹ list', x, y, fs(10), COLORS.hud, 'left', 700);
   y += fs(10) / 2 + 8;

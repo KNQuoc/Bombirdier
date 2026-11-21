@@ -41,6 +41,7 @@ try {
   const L = await vite.ssrLoadModule('/src/list/list.ts');
   const adsb = await vite.ssrLoadModule('/src/flights/adsb.ts');
   const nearby = await vite.ssrLoadModule('/src/flights/nearby.ts');
+  const bgsu = await vite.ssrLoadModule('/src/fleet/bgsu.ts');
 
   test('engineKind by type designator', () => {
     for (const t of ['C172', 'P28A', 'PA44', 'SR22', 'DH8D', 'AT76', 'B350', 'PC12', 'C130']) {
@@ -89,6 +90,33 @@ try {
     plane({ id: 'a8', callsign: null, registration: null, typeCode: null, altitudeFt: null, groundSpeedKt: null, distanceKm: 80 }),
   ];
   const ids = (f) => F.applyFilter(fleet, f).map((p) => p.id);
+
+  test('BGSU fleet: tail number plus a propeller type', () => {
+    const tail = (registration, over = {}) => plane({ registration, callsign: registration, ...over });
+    assert.equal(bgsu.isBgsu(tail('N337BG', { typeCode: 'P28A' })), true);
+    assert.equal(bgsu.isBgsu(tail('N442BG', { typeCode: 'PA44' })), true);
+    assert.equal(bgsu.isBgsu(tail('N901BG', { typeCode: 'P28A' })), true);
+    assert.equal(bgsu.isBgsu(tail('N905BG', { typeCode: null })), true); // type missing from the database
+    assert.equal(bgsu.isBgsu(plane({ registration: null, callsign: 'N901BG', typeCode: 'P28A' })), true); // callsign only
+    assert.equal(bgsu.isBgsu(tail('N501BG', { typeCode: 'CRJ7' })), false); // a regional jet that happens to end in BG
+    assert.equal(bgsu.isBgsu(tail('N72HP', { typeCode: 'P28A' })), false);
+    assert.equal(bgsu.isBgsu(tail('N1234BG', { typeCode: 'P28A' })), false); // four digits: not the BGSU scheme
+    assert.equal(bgsu.isBgsu(plane({ callsign: 'SWA1234', typeCode: 'B738' })), false);
+    const [a, b] = bgsu.tagFleet([tail('N337BG', { typeCode: 'P28A' }), tail('N72HP', { typeCode: 'C172' })]);
+    assert.deepEqual([a.tag, a.accent, b.tag], ['BGSU', bgsu.BGSU_COLOR, undefined]);
+  });
+
+  test('BGSU filter includes planes on the ground by default', () => {
+    const home = bgsu.tagFleet(fleet.map((p) => ({ ...p })));
+    const idsOf = (f) => F.applyFilter(home, f).map((p) => p.id);
+    assert.deepEqual(idsOf({ fleet: 'bgsu' }), ['a5', 'a4']); // N905BG taxiing, N901BG in the pattern
+    assert.deepEqual(idsOf({ fleet: 'bgsu', onGround: 'hide' }), ['a4']);
+    assert.deepEqual(idsOf({ fleet: 'bgsu', onGround: 'only' }), ['a5']);
+    assert.deepEqual(idsOf({}), ['a4', 'a6', 'a2', 'a8', 'a3', 'a7', 'a1']); // everyone else unchanged
+    assert.deepEqual(F.filterChips({ fleet: 'bgsu', climbing: true }), ['BGSU', '↑ climbing']);
+    assert.deepEqual(F.sanitizeFilter({ fleet: 'bgsu' }), { fleet: 'bgsu' });
+    assert.deepEqual(F.sanitizeFilter({ fleet: 'delta' }), {});
+  });
 
   test('default list: airborne only, nearest first', () => {
     assert.deepEqual(ids({}), ['a4', 'a6', 'a2', 'a8', 'a3', 'a7', 'a1']);

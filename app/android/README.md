@@ -12,6 +12,7 @@ Standalone APK (Capacitor). The web code is bundled into the app, and only adsb.
   - **Done** or back returns to the view.
   - If the view can't start (e.g. camera permission denied), settings open with the reason.
 - **Plane list:** ☰ (next to ⚙) shows every plane within 250 nm on the right of each eye, 8 per page, nearest first. Tap a row to open it (route, where it is; a plane within the AR radius gets a pulsing bracket and a compass arrow), tap the opened plane to go back, ▲▼ or swipe to page. Dimmed rows are below the horizon. While the list is open the radar shows the list's planes. Filters and sorting come by voice in Phase 3; until then dev mode has keys for them.
+- **BGSU planes:** the flight program's trainers (tail numbers N…BG) are orange everywhere and carry a **BGSU** tag on their card. The list has a BGSU filter (dev key `F`, first preset; by voice in Phase 3) that also shows the ones on the ground.
 - **Compass calibration:** Settings → **🧭 Calibrate compass**. Draw a figure 8 with the phone while twisting it.
   - **Ring (coverage):** fills as the phone is turned through different orientations (14 field directions, 10 needed).
   - **Consistency (the quality measure):** a calibrated compass reads the same field strength whichever way the phone points. Each direction keeps a running average of the strength seen there; consistency is ± half the max–min spread, as a % of the median. **Good ≤ ±5%**, Fair ≤ ±10%, Poor above. *Calibrated* = 10 directions covered and Good consistency over at least 8 of them.

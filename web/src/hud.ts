@@ -16,7 +16,7 @@
 // same style on the same canvas after drawHud().
 // The middle of the view stays clear.
 
-import { aircraftStatus, cardLines, flightLabel, statusTag } from './format';
+import { aircraftStatus, cardLines, cardTag, flightLabel } from './format';
 import type { AircraftStatus } from './format';
 import { elevationDeg, halfFovDeg, normalizeDeg, projectSky, projectX, signedDiffDeg } from './geo';
 import type { SkyPoint } from './geo';
@@ -95,6 +95,9 @@ export const STATUS_COLORS: Record<AircraftStatus, string> = {
   military: '#4cd964',
   normal: COLORS.hud,
 };
+/** A plane's color: by status, or its own accent (Plane.accent) if it has no special status. */
+export const planeColor = (p: Plane, status: AircraftStatus = aircraftStatus(p)) =>
+  status === 'normal' && p.accent ? p.accent : STATUS_COLORS[status];
 /** Emergency blink: on/off period in ms. */
 const BLINK_MS = 400;
 
@@ -222,7 +225,7 @@ function drawRadar(
     const status = aircraftStatus(p);
     if (status === 'emergency' && blinkOff) continue;
     const [x, y] = toXY(p.bearingDeg, p.distanceKm / range);
-    ctx.fillStyle = marked.has(p.id) ? COLORS.focus : STATUS_COLORS[status];
+    ctx.fillStyle = marked.has(p.id) ? COLORS.focus : planeColor(p, status);
     ctx.beginPath();
     ctx.arc(x, y, marked.has(p.id) ? 3.2 : dot, 0, Math.PI * 2);
     ctx.fill();
@@ -318,7 +321,7 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
   const focusX = projectX(focus.off, s.halfTan, w);
   if (focusX != null && focusX >= x0 && focusX <= x1) drawAircraft(ctx, focusX, barY, focus.p, true, s.timeMs);
   const status = aircraftStatus(focus.p);
-  const accent = status === 'normal' ? COLORS.focus : STATUS_COLORS[status];
+  const accent = status === 'normal' ? (focus.p.accent ?? COLORS.focus) : STATUS_COLORS[status];
 
   // The card hangs under the plane's bracket when there's room, otherwise under the compass.
   const pt = inSky.find((m) => m.p.id === focus.p.id)?.pt;
@@ -331,7 +334,7 @@ function drawPlanes(ctx: CanvasRenderingContext2D, w: number, h: number, s: HudS
       cardTop = Math.max(cardTop, pt.y + r + 8);
     }
   }
-  if (s.showCard !== false) drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, statusTag(focus.p));
+  if (s.showCard !== false) drawCard(ctx, w, cardX, cardTop, cardLines(focus.p), t, accent, cardTag(focus.p));
   return { focus: { ...focus.p, offsetDeg: focus.off }, inView };
 }
 
@@ -383,7 +386,7 @@ function drawSkyMarker(ctx: CanvasRenderingContext2D, pt: SkyPoint, p: Plane, fo
   const far = Math.min(1, p.distanceKm / ICON_FAR_KM);
   const r = focus ? 16 : 11 - 4 * far;
   const arm = r * 0.5;
-  const color = focus && status === 'normal' ? COLORS.focus : STATUS_COLORS[status];
+  const color = focus && status === 'normal' ? COLORS.focus : planeColor(p, status);
 
   ctx.save();
   ctx.strokeStyle = color;
@@ -603,7 +606,7 @@ function drawAircraft(ctx: CanvasRenderingContext2D, x: number, y: number, p: Pl
   ctx.lineWidth = (focusOutline ? 3.2 : 2.2) / s;
   ctx.strokeStyle = focusOutline ? COLORS.focus : 'rgba(0, 0, 0, 0.7)';
   ctx.stroke(path);
-  ctx.fillStyle = focus && status === 'normal' ? COLORS.focus : STATUS_COLORS[status];
+  ctx.fillStyle = focus && status === 'normal' ? COLORS.focus : planeColor(p, status);
   ctx.fill(path);
   ctx.restore();
 }

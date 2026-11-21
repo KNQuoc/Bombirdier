@@ -3,6 +3,7 @@
 
 import type { Plane } from '@web/planes';
 import { KM_PER_NM } from '../flights/nearby';
+import { BGSU_TAG } from '../fleet/bgsu';
 import { engineKind } from './kind';
 
 export const LIST_KINDS = ['jets', 'props', 'helicopters', 'military', 'medical', 'emergencies'] as const;
@@ -14,6 +15,8 @@ export type SortOrder = 'asc' | 'desc';
 export type GroundMode = 'hide' | 'show' | 'only';
 
 export type ListFilter = {
+  /** Only the home fleet: BGSU's trainers. Includes ones on the ground unless `onGround` says otherwise. */
+  fleet?: 'bgsu';
   kind?: ListKind;
   /** ICAO airline code, e.g. "SWA": matches callsigns like SWA1234. */
   airline?: string;
@@ -52,6 +55,7 @@ const oneOf = <T extends string>(v: unknown, options: readonly T[]): T | undefin
 export function sanitizeFilter(input: unknown): ListFilter {
   const f = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const out: ListFilter = {
+    fleet: oneOf(f.fleet, ['bgsu'] as const),
     kind: oneOf(f.kind, LIST_KINDS),
     airline: text(f.airline, 3),
     typeCode: text(f.typeCode, 4),
@@ -89,9 +93,11 @@ function matchesKind(p: Plane, kind: ListKind): boolean {
 }
 
 export function matches(p: Plane, f: ListFilter): boolean {
-  const ground = f.onGround ?? 'hide';
+  // Ground traffic is clutter in general, but a BGSU plane taxiing at its home field is the point.
+  const ground = f.onGround ?? (f.fleet ? 'show' : 'hide');
   if (ground === 'hide' && p.onGround) return false;
   if (ground === 'only' && !p.onGround) return false;
+  if (f.fleet === 'bgsu' && p.tag !== BGSU_TAG) return false;
   if (f.kind && !matchesKind(p, f.kind)) return false;
   if (f.airline && !new RegExp(`^${f.airline}\\d`).test(p.callsign?.toUpperCase() ?? '')) return false;
   if (f.typeCode && p.typeCode?.toUpperCase() !== f.typeCode) return false;
@@ -148,6 +154,7 @@ const feet = (ft: number) => `${Math.round(ft).toLocaleString('en-US')} ft`;
 /** The active filters as short labels for the list header, e.g. ["✈ jets", ">30,000 ft", "SWA"]. */
 export function filterChips(f: ListFilter): string[] {
   const chips: string[] = [];
+  if (f.fleet === 'bgsu') chips.push(BGSU_TAG);
   if (f.kind) chips.push(KIND_CHIPS[f.kind]);
   if (f.airline) chips.push(f.airline);
   if (f.typeCode) chips.push(f.typeCode);
@@ -168,6 +175,7 @@ export function filterChips(f: ListFilter): string[] {
 
 /** Filters the dev-mode F key steps through (after "no filter"). */
 export const DEV_PRESETS: ListFilter[] = [
+  { fleet: 'bgsu' },
   { kind: 'jets', minAltFt: 30_000 },
   { kind: 'props' },
   { kind: 'helicopters' },
