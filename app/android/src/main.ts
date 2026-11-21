@@ -411,6 +411,8 @@ function voiceContext() {
     arRadiusKm: traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM,
     // What the sky is limited to, if anything ("only show helicopters in the sky").
     skyFilter: skyFilter ? skyFilterLabel(skyFilter) : null,
+    // So "close it" can mean the legend when that is what's on screen.
+    airspace: { on: appSettings.colorByController, legend: appSettings.colorByController && appSettings.airspaceLegend },
     // Roughly where you are (to about a kilometer), for the weather and the forecast nearest you.
     viewer: viewer ? { lat: Math.round(viewer.lat * 100) / 100, lon: Math.round(viewer.lon * 100) / 100 } : null,
     list: listView
@@ -461,6 +463,7 @@ const assistant = createAssistant({
       return true;
     },
     setAirspace,
+    setLegend,
     setSkyFilter: (filter) => {
       skyFilter = filter === 'list' ? skyFilterFrom(list.state().filter) : skyFilterFrom(filter);
       const near = traffic?.near.get().planes ?? [];
@@ -612,10 +615,18 @@ function handoffLine(planeId: string, now = Date.now()): string | null {
 /** The airspace view's legend for this frame (null = the view is off). */
 let airspaceLegend: { rows: LegendRow[]; last: string | null } | null = null;
 
+/** Turning the view on brings its legend back: "show me the airspace" is asking to see all of it. */
 function setAirspace(on: boolean) {
-  appSettings = { ...appSettings, colorByController: on };
+  appSettings = { ...appSettings, colorByController: on, airspaceLegend: on ? true : appSettings.airspaceLegend };
   saveAppSettings(appSettings);
   console.info(`[airspace] planes coloured by controller: ${on ? 'on' : 'off'}`);
+}
+
+/** Just the legend box: the planes keep their colours. Showing it turns the view on if it was off. */
+function setLegend(on: boolean) {
+  appSettings = { ...appSettings, airspaceLegend: on, colorByController: on ? true : appSettings.colorByController };
+  saveAppSettings(appSettings);
+  console.info(`[airspace] legend: ${on ? 'shown' : 'hidden'}`);
 }
 
 function stationInfo(f: Facility): StationInfo {
@@ -813,7 +824,7 @@ function frame() {
     if (listView && showPanel) drawList(eye.ctx, width, height, listView, hud.headingDeg, hud.timeMs);
     if (skyFilter) drawSkyFilterChip(eye.ctx, width, height, skyFilter);
     // The legend sits where the list and the assistant's text go: they come first.
-    if (airspaceLegend && !(listView && showPanel) && !voiceShowing) drawAirspaceLegend(eye.ctx, width, height, airspaceLegend.rows, airspaceLegend.last);
+    if (airspaceLegend && appSettings.airspaceLegend && !(listView && showPanel) && !voiceShowing) drawAirspaceLegend(eye.ctx, width, height, airspaceLegend.rows, airspaceLegend.last);
     if (connectedView) drawConnected(eye.ctx, width, height, connectedView, transcriptShowing && !voiceShowing);
     // The one-line subtitle is for when no transcript is on screen (it would say the same thing twice).
     if (radioCall && !transcriptShowing) drawRadio(eye.ctx, width, height, radioCall, traffic?.arRadiusKm ?? DEFAULT_RADIUS_KM);
@@ -1242,8 +1253,12 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'l' || e.key === 'L') toggleList();
   // S = the list's filter on the sky (again = off).
   else if (e.key === 's' || e.key === 'S') skyFilter = skyFilter ? null : skyFilterFrom(list.state().filter);
-  // K = colour the planes by controller (again = normal colours).
-  else if (e.key === 'k' || e.key === 'K') setAirspace(!appSettings.colorByController);
+  // K = colour the planes by controller; again = without the legend box; again = normal colours.
+  else if (e.key === 'k' || e.key === 'K') {
+    if (!appSettings.colorByController) setAirspace(true);
+    else if (appSettings.airspaceLegend) setLegend(false);
+    else setAirspace(false);
+  }
   // C = listen to the controller in the middle of the view (again = stop). M = mute, T = transcript.
   else if (e.key === 'c' || e.key === 'C') {
     const feedId = lastHud.station && stationBrief(lastHud.station.id)?.feedId;

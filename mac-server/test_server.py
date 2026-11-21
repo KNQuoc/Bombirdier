@@ -721,5 +721,18 @@ check("airspace: who is controlling it stays a plane question", actions("who is 
 check("airspace action: valid", tools.validate_actions([{"type": "airspace", "state": "show"}]), [{"type": "airspace", "state": "show"}])
 check("airspace action: wrong state dropped", tools.validate_actions([{"type": "airspace", "state": "up"}]), [])
 
+# The airspace legend on its own.
+LEGEND_UP = {**CTX, "airspace": {"on": True, "legend": True}, "list": {"open": False}}
+for text in ("Close the legend.", "hide the key", "Close the airspace window", "get rid of the controller list", "legend off"):
+    check(f"legend off: {text}", actions(text), [{"type": "legend", "state": "hide"}])
+for text in ("Close it.", "close the window", "hide that box"):
+    check(f"legend off when it is what's showing: {text}", actions(text, LEGEND_UP), [{"type": "legend", "state": "hide"}])
+check("close it: still the list when the list is open", actions("close it", {**LEGEND_UP, "list": {"open": True}}), [{"type": "hide_list"}])
+check("close it: still the list when there is no legend", actions("close it"), [{"type": "hide_list"}])
+check("close the window: nothing to close", actions("close the window"), None)
+for text in ("Show the legend", "bring back the key", "show me the airspace window again"):
+    check(f"legend on: {text}", actions(text), [{"type": "legend", "state": "show"}])
+check("legend action: valid", tools.validate_actions([{"type": "legend", "state": "hide"}]), [{"type": "legend", "state": "hide"}])
+
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

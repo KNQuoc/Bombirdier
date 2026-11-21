@@ -56,6 +56,7 @@ ACTIONS: dict[str, list[str]] = {
     "radio_audio": ["state"],  # on | off | up | down: the live audio, without disconnecting
     "transcript": ["state"],  # show | hide: the scrolling transcript, independent of the audio
     "airspace": ["state"],  # show | hide: colour each plane by the controller working it, with a legend
+    "legend": ["state"],  # show | hide: the airspace view's legend box only; the colours stay
 }
 
 ACTION_SCHEMA = {
@@ -118,7 +119,7 @@ def validate_actions(raw) -> list[dict]:
             continue
         if kind == "radio_scope" and clean["state"] not in ("all", "one"):
             continue
-        if kind == "airspace" and clean["state"] not in ("show", "hide"):
+        if kind in ("airspace", "legend") and clean["state"] not in ("show", "hide"):
             continue
         out.append(clean)
     return out[:4]
@@ -146,6 +147,7 @@ def describe_for_prompt() -> str:
 - disconnect_feed: stop listening to the radio
 - radio_audio {state: on|off|up|down}: unmute, mute or change the volume of the radio without disconnecting
 - transcript {state: show|hide}: show or hide the radio transcript, independent of the audio
+- legend {state: show|hide}: show or hide only the airspace view's legend box (the list of controllers and their colours); the planes keep their colours
 - airspace {state: show|hide}: colour every plane by the controller working it (Cleveland Center, Detroit, Toledo, Columbus, nobody) with a legend, or go back to the normal colours ("show me who controls what", "colour the planes by controller")
 
 Filter fields (all optional): fleet "bgsu" (BGSU's trainers), kind (jets, props, helicopters, military, medical,

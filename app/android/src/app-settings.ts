@@ -19,6 +19,8 @@ export type AppSettings = {
   radioCalls: boolean;
   /** The airspace view: every plane coloured by the controller working it, with a legend (atc/control.ts). */
   colorByController: boolean;
+  /** The airspace view's legend box. Off = the colours without the box. */
+  airspaceLegend: boolean;
   /** Where the Mac server (voice assistant) is. The default works over USB after `adb reverse tcp:8787 tcp:8787`. */
   serverUrl: string;
   /** Shared secret the Mac server asks for over Wi-Fi (BOMBIRDIER_TOKEN in mac-server/.env). Not needed over USB. */
@@ -32,6 +34,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   activeRunway: AUTO_RUNWAY,
   radioCalls: true,
   colorByController: false,
+  airspaceLegend: true,
   serverUrl: 'http://localhost:8787',
   serverToken: '',
 };
@@ -51,6 +54,7 @@ export function loadAppSettings(): AppSettings {
       activeRunwayChosen: saved.activeRunwayChosen === true,
       radioCalls: saved.radioCalls !== false,
       colorByController: saved.colorByController === true,
+      airspaceLegend: saved.airspaceLegend !== false,
       serverUrl: typeof saved.serverUrl === 'string' && /^https?:\/\//.test(saved.serverUrl) ? saved.serverUrl : DEFAULT_APP_SETTINGS.serverUrl,
       serverToken: typeof saved.serverToken === 'string' ? saved.serverToken.slice(0, 200) : '',
     };

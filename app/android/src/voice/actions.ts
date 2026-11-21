@@ -25,6 +25,8 @@ export type ActionDeps = {
   setSkyFilter: (filter: unknown | 'list' | null) => { label: string | null; matching: number; withinKm: number };
   /** Planes coloured by controller, on or off. */
   setAirspace: (on: boolean) => void;
+  /** The airspace view's legend box, on or off (on also turns the view on). */
+  setLegend: (on: boolean) => void;
   /** How far the data reaches, for "no helicopters within 250 miles". */
   coverageNm: () => number;
   /** How many planes the app knows about at all. Zero means there's no data, not an empty sky. */
@@ -181,6 +183,9 @@ export function applyActions(actions: VoiceAction[], deps: ActionDeps): string |
       }
       case 'airspace':
         if (a.state === 'show' || a.state === 'hide') deps.setAirspace(a.state === 'show');
+        break;
+      case 'legend':
+        if (a.state === 'show' || a.state === 'hide') deps.setLegend(a.state === 'show');
         break;
       case 'ar_range':
         if (typeof a.km === 'number' && a.km >= 0) deps.setArRadiusKm(a.km > 0 ? a.km : null);

@@ -116,6 +116,19 @@ def quick(text: str, context: dict) -> dict | None:
         return _reply("Next page.", {"type": "page", "direction": "next"})
     if re.fullmatch(r"(previous|prev|last)( page)?|page up|go back a page|back a page", t):
         return _reply("Previous page.", {"type": "page", "direction": "prev"})
+    # The airspace view's legend box, without touching the colours. "Close it" and "close the window"
+    # mean the legend when it is the thing on screen and the list is not.
+    air = context.get("airspace") if isinstance(context.get("airspace"), dict) else {}
+    listed = context.get("list") if isinstance(context.get("list"), dict) else {}
+    _box = r"(?:legend|key|colou?r key|colou?rs? (?:list|box|window)|(?:airspace|controllers?|controller colou?rs?) (?:window|box|panel|legend|list|key|popup))"
+    _close = r"(?:close|hide|dismiss|remove|get rid of|turn off|exit)"
+    if re.fullmatch(rf"{_close}(?: the| that| this)? {_box}|{_box} off|no {_box}", t) or (
+        air.get("legend") and not listed.get("open") and re.fullmatch(rf"{_close} (?:it|that|this|(?:the|that|this) (?:window|box|panel|popup|pop up|thing))", t)
+    ):
+        return _reply("Legend hidden. The colours stay.", {"type": "legend", "state": "hide"})
+    if re.fullmatch(rf"(?:show|open|bring back|bring up|display)(?: me)?(?: the| that)? {_box}(?: again)?|{_box} on", t):
+        return _reply("", {"type": "legend", "state": "show"})
+
     if re.fullmatch(r"(close|hide|dismiss|exit)( the)?( plane| traffic)? list|close it|list off", t):
         return _reply("List closed.", {"type": "hide_list"})
     if re.fullmatch(r"(show|open|bring up|pull up)( me)?( the)?( plane| traffic)? list|list on", t):
